@@ -1,0 +1,323 @@
+:experimental:
+:imagesdir: images
+ifdef::env-github[]
+:icons:
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+
+== About
+This guide's goal is to be the easiest to follow, and to bypass some VM detections without slowing down performance.
+
+It is for CachyOS using systemd-boot and its defaults.
+
+The host GPU is from AMD, while the guest (VM / Virtual Machine / VFIO) GPU is from NVIDIA.
+
+The operating system of choice is Windows 10 LTSC 2019. Please don't use Windows 11, not only https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will it not work] without purposefully sacrificing your performance after the June 2025 updates, but the overall quality is way lower than Windows 10.
+
+== 0. A recommendation before starting
+If you use a Wayland desktop environment or window manager, switch to an X11 one such as Xfce. This will increase stability.
+
+`sudo pacman -S xfce4 xfce4-whiskermenu-plugin xfce4-pulseaudio-plugin pavucontrol`
+
+You'd want to right click the taskbar, hover over Panel, then add the Whisker Menu and PulseAudio applets.
+
+For "fractional scaling" in Xfce, go to the Settings Manager -> Appearance -> Fonts, and crank up the Custom DPI setting until suitable.
+
+== 1. GPU passthrough
+Find the IDs to pass to vfio-pci for your guest GPU: +
+`lspci -vnn`
+
+For this example, you would passthrough the IDs `10de:2705` and `10de:22bb`:
+----
+05:00.0 VGA compatible controller [0300]: NVIDIA Corporation AD103 [GeForce RTX 4070 Ti SUPER] [10de:2705] (rev a1) (prog-if 00 [VGA controller])
+        Subsystem: Gigabyte Technology Co., Ltd Device [1458:413d]
+        Flags: bus master, fast devsel, latency 0, IRQ 101, IOMMU group 21
+        Memory at dd000000 (32-bit, non-prefetchable) [size=16M]
+        Memory at f800000000 (64-bit, prefetchable) [size=16G]
+        Memory at fc00000000 (64-bit, prefetchable) [size=32M]
+        I/O ports at e000 [size=128]
+        Expansion ROM at de000000 [virtual] [disabled] [size=512K]
+        Capabilities: <access denied>
+        Kernel driver in use: nvidia
+        Kernel modules: nouveau, nvidia_drm, nvidia
+
+05:00.1 Audio device [0403]: NVIDIA Corporation Device [10de:22bb] (rev a1)
+        Subsystem: Gigabyte Technology Co., Ltd Device [1458:413d]
+        Flags: bus master, fast devsel, latency 0, IRQ 169, IOMMU group 21
+        Memory at de080000 (32-bit, non-prefetchable) [size=16K]
+        Capabilities: <access denied>
+        Kernel driver in use: snd_hda_intel
+        Kernel modules: snd_hda_intel
+----
+
+Edit: `/etc/modprobe.d/vfio.conf`
+----
+softdep drm pre: vfio-pci
+softdep nvidia pre: vfio-pci
+softdep amdgpu pre: vfio-pci
+softdep snd_hda_intel pre: vfio-pci
+
+# Change these PCIe IDs to yours!
+options vfio-pci ids=10de:2705,10de:22bb
+----
+
+Edit: `/etc/mkinitcpio.conf`
+----
+# Replace MODULES=() with the following:
+# MODULES=(vfio_pci vfio vfio_iommu_type1)
+# If you already have modules in there, put the new vfio entries before those modules.
+
+# Check to see if 'modconf' is already included in HOOKS=(), it's necessary.
+----
+
+Apply the new modprobe.d and mkinitcpio.conf changes: +
+`mkinitcpio -P`
+
+== 2. Virtual machine requisites
+
+`sudo pacman -S qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba bridge-utils`
+
+Assign your user to the correct groups to prevent issues in the future: +
+`sudo usermod -a -G qemu,video,kvm,libvirt,libvirt-qemu "$USER"`
+
+`sudo mkdir -p /etc/{modprobe.d,udev/rules.d}`
+
+Edit: `/boot/loader/entries/linux-cachyos.conf`
+----
+# Add the following to 'options':
+# intel_iommu=on iommu=pt tsc=reliable no_timer_check
+----
+
+Edit: `/etc/libvirt/network.conf`, and change `firewall_backend` to `iptables`. This is necessary since we're using `iptables-nft` and not `nftables` standalone.
+
+Enable and start the required services to use Virtual Machine Manager: +
+`sudo systemctl enable --now libvirtd.service`
+
+== 3. Virtual machine setup
+
+Ensure the disk you'll use for the VM is mounted to `/mnt` instead of `/run/media`.
+
+When creating a disk, ensure its Format is 'raw' instead of 'qcow'; VirtualBox is the better option for disk snapshots. Use this to get exact disk size measurements: https://www.gbmb.org/tb-to-gib
+
+Install Windows 10 LTSC 2019 as it is the best edition to use for performance and stability.
+
+WARNING: Make sure the disk type is virtio before installing Windows 10, otherwise you have to follow these steps to correct this mistake later for higher performance: https://superuser.com/a/1253728
+
+Add an additional SATA CDROM to the VM, so you can load the latest `virtio-win-*.iso` into it; get the ISO from https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D[here]. At first this is used so you have disk drivers, but later on you can install all of its drivers inside of the VM by running `virtio-win-guest-tools` (after Windows is installed).
+
+
+== 4. Looking Glass setup
+
+`paru -S looking-glass-guest looking-glass-module-dkms obs-plugin-looking-glass`
+
+https://looking-glass.io/docs/B7/ivshmem_kvmfr/[Follow through the official documentation], skip only past the "Installing" step as you've already done that the Arch way.
+
+Install the Looking Glass Host to the Windows VM, and run it.
+
+Be sure to plug in a display port into the passed through GPU, otherwise Looking Glass will not work. It could be a real HDMI or DisplayPort plug (recommended), or a dummy plug.
+
+== 5. Optimizing VM performance and hiding the VM from some software
+
+Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mouse-display-audio[its own recommendations], follow those in addition to what guide recommends below.
+
+Sudo edit: `/etc/sysctl.d/qemu.conf`
+----
+# Prevents GPU timeouts or other VM hanging while running video games:
+kernel.split_lock_mitigate=0
+----
+
+Sudo edit: `/etc/modprobe.d/qemu.conf`
+----
+# Prevents Windows BSODs and performance decreases in instances of MSRs faults.
+options kvm ignore_msrs=Y report_ignored_msrs=N kvmclock_periodic_sync=N
+
+# Improves VM performance and lowers DPC latency drastically.
+options kvm_amd npt=1 avic=1
+
+# Pause Loop Exit is useful when the CPU is overcommitted (with how a gaming VM is setup, it won't be), such as multiple VMs accessing the same CPU affinities; this lowers DPC latency, which is important for gaming.
+options kvm_intel ple_gap=0 ple_window=0
+----
+
+Apply the new modprobe.d changes; afterwards you need to reboot: +
+`mkinitcpio -P`
+
+For the XML changes below, here is the topology of the 9800X3D CPU used (relevant for the CPU pinning): +
+image:lstopo.png[]
+
+Show hardware topology to understand what your CPU's pinning would look like; make sure to press kbd:[f] if there appears to be missing CPU cores: +
+`lstopo`
+
+Enable XML editing in Virtual Machine Manager, then set or change the following:
+----
+  # Put under <currentMemory>
+  <memoryBacking>
+    <nosharepages/>
+    <locked/>
+  </memoryBacking>
+
+  # Put inside <clock>; gets past RDTSC exit checks by faking a 0.6GHz CPU frequency
+  <timer name="tsc" frequency="600000000"/>
+
+  # Change the cores to the amount allocated to the VM; 12 cores would be cores="6"
+  <cpu mode="host-passthrough" check="none" migratable="off">
+    <topology sockets="1" dies="1" clusters="1" cores="7" threads="2"/>
+    <cache mode="passthrough"/>
+    <feature policy="require" name="topoext"/>
+    <feature policy="require" name="invtsc"/>
+    <feature policy="require" name="tsc-deadline"/>
+    <feature policy="disable" name="svm"/>
+    <feature policy="disable" name="vmx"/>
+  </cpu>
+
+  # emulatorpin can be changed outside of the VM cores if you have extra to spare, such as for a 9950X3D CPU.
+  <iothreads>1</iothreads>
+  <cputune>
+    <vcpupin vcpu='0' cpuset='0'/>
+    <vcpupin vcpu='1' cpuset='8'/>
+    <vcpupin vcpu='2' cpuset='1'/>
+    <vcpupin vcpu='3' cpuset='9'/>
+    <vcpupin vcpu='4' cpuset='2'/>
+    <vcpupin vcpu='5' cpuset='10'/>
+    <vcpupin vcpu='6' cpuset='3'/>
+    <vcpupin vcpu='7' cpuset='11'/>
+    <vcpupin vcpu='8' cpuset='4'/>
+    <vcpupin vcpu='9' cpuset='12'/>
+    <vcpupin vcpu='10' cpuset='5'/>
+    <vcpupin vcpu='11' cpuset='13'/>
+    <vcpupin vcpu='12' cpuset='6'/>
+    <vcpupin vcpu='13' cpuset='14'/>
+    <vcpusched vcpus='0-13' scheduler='rr' priority='1'/>
+    <iothreadsched iothreads='1' scheduler='fifo' priority='98'/>
+  </cputune>
+
+  # Put inside <features>
+    <hyperv mode="passthrough">
+    </hyperv>
+    <pmu state="off"/>
+    <kvm>
+      <hidden state="on"/>
+    </kvm>
+    <msrs unknown='ignore'/>
+
+  # Put inside <os>
+  <smbios mode="host"/>
+
+  # Put inside <devices>
+  <memballoon model="none"/>
+
+  # Put inside <qemu:commandline>
+  <qemu:arg value="-overcommit"/>
+  <qemu:arg value="cpu-pm=on"/>
+
+  # More optimal settings for virtio on NVMe drives
+  <disk type="file" device="disk">
+    <driver name="qemu" type="raw" cache="none" io="native" discard="unmap" iothread="1" queues="8"/>
+    <source file="/mnt/nvme/win11.img"/>
+    <target dev="vda" bus="virtio"/>
+  </disk>
+----
+
+Create the automatic hooks file: +
+`sudo mkdir -p /etc/libvirt/hooks; sudo touch /etc/libvirt/hooks/qemu`
+
+Sudo edit: `/etc/libvirt/hooks/qemu`; change the vm_running and vm_not_running core numbers to what's applicable to your CPU.
+----
+#!/bin/sh
+
+command=$2
+vm_running="7,15"
+vm_not_running="0-15"
+
+if [ "$command" = "started" ]; then
+    systemctl set-property --runtime -- system.slice AllowedCPUs=${vm_running}
+    systemctl set-property --runtime -- user.slice AllowedCPUs=${vm_running}
+    systemctl set-property --runtime -- init.scope AllowedCPUs=${vm_running}
+elif [ "$command" = "release" ]; then
+    systemctl set-property --runtime -- system.slice AllowedCPUs=${vm_not_running}
+    systemctl set-property --runtime -- user.slice AllowedCPUs=${vm_not_running}
+    systemctl set-property --runtime -- init.scope AllowedCPUs=${vm_not_running}
+fi
+----
+
+.Go into the Windows VM and do the following:
+- Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
+- Run "Turn Windows features on or off". Ensure that "Hyper-V" and "Windows Hypervisor Platform" is left unchecked as these features will destroy performance.
+
+== 6. Sharing files to the Windows VM without enabling shared memory (for better performance)
+
+The network source for the Windows VM has to be set to "Bridge device..." for this to work, I recommend setting its device name to "br0".
+
+Create the network bridge: +
+`nmcli con add ifname br0 type bridge con-name br0`
+
+Get the network interface name, such as `enp14s0` (ignore `lo`, `virbr0`, and `br0`): +
+`ip a`
+
+Inherit the physical interface: +
+`nmcli con add type bridge-slave ifname enp14s0 master br0`
+
+Disable STP: +
+`nmcli con mod br0 bridge.stp no`
+
+Use DHCP for the bridge: +
+`nmcli device modify br0 ipv4.method auto; nmcli device modify br0 ipv6.method auto`
+
+Enable and start the new bridge connection: +
+`nmcli con down "Wired connection 1"; nmcli con up br0`
+
+Edit: `/etc/samba/smb.conf`
+----
+[global]
+# Security
+client min protocol = SMB3
+## SMB3_11 is also faster than previous versions.
+server min protocol = SMB3
+## Allow local IPs.
+hosts allow = 192.168.0.0/16
+## Deny all other IPs.
+hosts deny = 0.0.0.0/0
+restrict anonymous = 2
+disable netbios = Yes
+dns proxy = No
+# Performance
+use sendfile = Yes
+## Don't use outside local IPs! 
+smb encrypt = No
+# Other
+server role = standalone server
+# Disable printer support
+disable spoolss = Yes
+load printers = No
+printcap name = /dev/null
+show add printer wizard = No
+printing = bsd
+
+# 'share1' is what Windows 10 will see in its file manager.
+[share1]
+path = /directory/to/folder
+read only = No
+## If the user is not 'admin', rename the group and user.
+force group = admin
+force user = admin
+----
+
+Validate the SMB server config, it should return no errors: +
+`testparm`
+
+Add an SMB login for your username. It's recommended to use a different password than your real Linux password: +
+`sudo smbpasswd -a $USER`
+
+Allow the SMB ports through the firewall: +
+`sudo ufw allow 445; sudo ufw allow 139`
+
+Enable and start the SaMBa service: +
+`sudo systemctl enable --now smb.service`
+
+Find the correct IP address to connect to inside the Windows VM for the file sharing; ignore `virbr0`: +
+`ip a | grep -A 2 "br0:"`
+
+Open the 'Run' program in the Windows VM, and run: `\\192.168.50.179` (replace with the IP that was shown earlier).
