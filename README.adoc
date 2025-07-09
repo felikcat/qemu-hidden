@@ -16,16 +16,7 @@ It is for CachyOS using systemd-boot and its defaults.
 
 The host GPU is from AMD, while the guest (VM / Virtual Machine / VFIO) GPU is from NVIDIA.
 
-The operating system of choice is Windows 10 LTSC 2019. Please don't use Windows 11, not only https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will it not work] without purposefully sacrificing your performance after the June 2025 updates, but the overall quality is way lower than Windows 10.
-
-== 0. A recommendation before starting
-If you use a Wayland desktop environment or window manager, switch to an X11 one such as Xfce. This will increase stability.
-
-`sudo pacman -S xfce4 xfce4-whiskermenu-plugin xfce4-pulseaudio-plugin pavucontrol`
-
-You'd want to right click the taskbar, hover over Panel, then add the Whisker Menu and PulseAudio applets.
-
-For "fractional scaling" in Xfce, go to the Settings Manager -> Appearance -> Fonts, and crank up the Custom DPI setting until suitable.
+The operating system of choice is Windows 10 LTSC 2019, get it from the MyDigitalLife forums. Please don't use Windows 11, it https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will not work] without purposefully sacrificing your performance after the June 2025 updates.
 
 == 1. GPU passthrough
 Find the IDs to pass to vfio-pci for your guest GPU: +
@@ -54,7 +45,7 @@ For this example, you would passthrough the IDs `10de:2705` and `10de:22bb`:
         Kernel modules: snd_hda_intel
 ----
 
-Edit: `/etc/modprobe.d/vfio.conf`
+Sudo edit: `/etc/modprobe.d/vfio.conf`
 ----
 softdep drm pre: vfio-pci
 softdep nvidia pre: vfio-pci
@@ -65,7 +56,7 @@ softdep snd_hda_intel pre: vfio-pci
 options vfio-pci ids=10de:2705,10de:22bb
 ----
 
-Edit: `/etc/mkinitcpio.conf`
+Sudo edit: `/etc/mkinitcpio.conf`
 ----
 # Replace MODULES=() with the following:
 # MODULES=(vfio_pci vfio vfio_iommu_type1)
@@ -79,23 +70,22 @@ Apply the new modprobe.d and mkinitcpio.conf changes: +
 
 == 2. Virtual machine requisites
 
-`sudo pacman -S qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba bridge-utils`
+`sudo pacman -S qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
 
 Assign your user to the correct groups to prevent issues in the future: +
 `sudo usermod -a -G qemu,video,kvm,libvirt,libvirt-qemu "$USER"`
 
-`sudo mkdir -p /etc/{modprobe.d,udev/rules.d}`
-
-Edit: `/boot/loader/entries/linux-cachyos.conf`
+Sudo edit: `/boot/loader/entries/linux-cachyos.conf`
 ----
 # Add the following to 'options':
 # intel_iommu=on iommu=pt tsc=reliable no_timer_check
 ----
 
-Edit: `/etc/libvirt/network.conf`, and change `firewall_backend` to `iptables`. This is necessary since we're using `iptables-nft` and not `nftables` standalone.
+Sudo edit: `/etc/libvirt/network.conf`, and change `firewall_backend` to `iptables`. This is necessary since we're using iptables-nft and not nftables standalone.
 
 Enable and start the required services to use Virtual Machine Manager: +
 `sudo systemctl enable --now libvirtd.service`
+
 
 == 3. Virtual machine setup
 
@@ -103,18 +93,18 @@ Ensure the disk you'll use for the VM is mounted to `/mnt` instead of `/run/medi
 
 When creating a disk, ensure its Format is 'raw' instead of 'qcow'; VirtualBox is the better option for disk snapshots. Use this to get exact disk size measurements: https://www.gbmb.org/tb-to-gib
 
+Add an additional SATA CDROM to the VM, so you can load the latest `virtio-win-*.iso` into it; get the ISO from https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D[here]. At first this is used so you have disk drivers, but later on you can install all of its drivers inside of the VM by running `virtio-win-guest-tools` (after Windows is installed).
+
 Install Windows 10 LTSC 2019 as it is the best edition to use for performance and stability.
 
 WARNING: Make sure the disk type is virtio before installing Windows 10, otherwise you have to follow these steps to correct this mistake later for higher performance: https://superuser.com/a/1253728
-
-Add an additional SATA CDROM to the VM, so you can load the latest `virtio-win-*.iso` into it; get the ISO from https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D[here]. At first this is used so you have disk drivers, but later on you can install all of its drivers inside of the VM by running `virtio-win-guest-tools` (after Windows is installed).
 
 
 == 4. Looking Glass setup
 
 `paru -S looking-glass-guest looking-glass-module-dkms obs-plugin-looking-glass`
 
-https://looking-glass.io/docs/B7/ivshmem_kvmfr/[Follow through the official documentation], skip only past the "Installing" step as you've already done that the Arch way.
+https://looking-glass.io/docs/B7/ivshmem_kvmfr/[Follow through the official documentation] but skip past the "Installing" step as you've already done that the Arch way.
 
 Install the Looking Glass Host to the Windows VM, and run it.
 
@@ -122,11 +112,11 @@ Be sure to plug in a display port into the passed through GPU, otherwise Looking
 
 == 5. Optimizing VM performance and hiding the VM from some software
 
-Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mouse-display-audio[its own recommendations], follow those in addition to what guide recommends below.
+Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mouse-display-audio[its own recommendations], follow those in addition to what my guide recommends below.
 
 Sudo edit: `/etc/sysctl.d/qemu.conf`
 ----
-# Prevents GPU timeouts or other VM hanging while running video games:
+# Prevents GPU timeouts or other VM hanging while running video games.
 kernel.split_lock_mitigate=0
 ----
 
@@ -153,7 +143,7 @@ Show hardware topology to understand what your CPU's pinning would look like; ma
 
 Enable XML editing in Virtual Machine Manager, then set or change the following:
 ----
-  # Put under <currentMemory>
+  # Put under </currentMemory>
   <memoryBacking>
     <nosharepages/>
     <locked/>
@@ -173,7 +163,7 @@ Enable XML editing in Virtual Machine Manager, then set or change the following:
     <feature policy="disable" name="vmx"/>
   </cpu>
 
-  # emulatorpin can be changed outside of the VM cores if you have extra to spare, such as for a 9950X3D CPU.
+  # Put under </vcpu>
   <iothreads>1</iothreads>
   <cputune>
     <vcpupin vcpu='0' cpuset='0'/>
@@ -201,7 +191,7 @@ Enable XML editing in Virtual Machine Manager, then set or change the following:
     <kvm>
       <hidden state="on"/>
     </kvm>
-    <msrs unknown='ignore'/>
+    <ioapic driver='kvm'/>
 
   # Put inside <os>
   <smbios mode="host"/>
@@ -248,26 +238,6 @@ fi
 - Run "Turn Windows features on or off". Ensure that "Hyper-V" and "Windows Hypervisor Platform" is left unchecked as these features will destroy performance.
 
 == 6. Sharing files to the Windows VM without enabling shared memory (for better performance)
-
-The network source for the Windows VM has to be set to "Bridge device..." for this to work, I recommend setting its device name to "br0".
-
-Create the network bridge: +
-`nmcli con add ifname br0 type bridge con-name br0`
-
-Get the network interface name, such as `enp14s0` (ignore `lo`, `virbr0`, and `br0`): +
-`ip a`
-
-Inherit the physical interface: +
-`nmcli con add type bridge-slave ifname enp14s0 master br0`
-
-Disable STP: +
-`nmcli con mod br0 bridge.stp no`
-
-Use DHCP for the bridge: +
-`nmcli device modify br0 ipv4.method auto; nmcli device modify br0 ipv6.method auto`
-
-Enable and start the new bridge connection: +
-`nmcli con down "Wired connection 1"; nmcli con up br0`
 
 Edit: `/etc/samba/smb.conf`
 ----
@@ -317,7 +287,7 @@ Allow the SMB ports through the firewall: +
 Enable and start the SaMBa service: +
 `sudo systemctl enable --now smb.service`
 
-Find the correct IP address to connect to inside the Windows VM for the file sharing; ignore `virbr0`: +
-`ip a | grep -A 2 "br0:"`
+Find the correct local IP address to connect to inside the Windows VM for the file sharing; for me the interface was "enp14s0": +
+`ip a`
 
-Open the 'Run' program in the Windows VM, and run: `\\192.168.50.179` (replace with the IP that was shown earlier).
+Open the 'Run' program in the Windows VM, and run: `\\192.168.50.179` (replace with your local IP that was shown earlier).
