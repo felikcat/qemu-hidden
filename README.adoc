@@ -66,7 +66,7 @@ Sudo edit: `/etc/mkinitcpio.conf`
 ----
 
 Apply the new modprobe.d and mkinitcpio.conf changes: +
-`mkinitcpio -P`
+`sudo mkinitcpio -P`
 
 == 2. Virtual machine requisites
 
@@ -133,7 +133,7 @@ options kvm_intel ple_gap=0 ple_window=0
 ----
 
 Apply the new modprobe.d changes; afterwards you need to reboot: +
-`mkinitcpio -P`
+`sudo mkinitcpio -P`
 
 For the XML changes below, here is the topology of the 9800X3D CPU used (relevant for the CPU pinning): +
 image:lstopo.png[]
