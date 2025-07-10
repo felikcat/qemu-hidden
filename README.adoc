@@ -16,9 +16,28 @@ It is for CachyOS using systemd-boot and its defaults.
 
 The host GPU is from AMD, while the guest (VM / Virtual Machine / VFIO) GPU is from NVIDIA.
 
+NOTE: These instructions also work for GPUs from Intel or AMD, but there's no advice on resolving the reset bug or other problems they may have.
+
 The operating system of choice is Windows 10 LTSC 2019, get it from the MyDigitalLife forums. Please don't use Windows 11, it https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will not work] without purposefully sacrificing your performance after the June 2025 updates.
 
 == 1. GPU passthrough
+Since the NVIDIA GPU won't be used on Linux, remove its drivers to prevent problems and lessen the system bloat. For me, OBS Studio kept trying to use NVIDIA drivers instead of the AMD drivers despite being installed: +
+`sudo pacman -R nvidia-settings nvidia-utils lib32-nvidia-utils linux-cachyos-nvidia-open libxnvctrl libva-nvidia-driver`
+
+NOTE: Ignore the errors for failing to find the NVIDIA GPU driver modules, as mkinitcpio will still work correctly.
+
+Create the directory if it doesn't exist: +
+`mkdir -p ~/.config/environment.d`
+
+Edit `~/.config/environment.d/99-amdgpu.conf`
+----
+LIBVA_DRIVER_NAME=radeonsi
+----
+
+`sudo rm /etc/profile.d/nvidia-vaapi.sh`
+
+This will fix the AMD GPU issue with OBS Studio after a reboot (don't reboot now).
+
 Find the IDs to pass to vfio-pci for your guest GPU: +
 `lspci -vnn`
 
@@ -65,59 +84,15 @@ Sudo edit: `/etc/mkinitcpio.conf`
 # Check to see if 'modconf' is already included in HOOKS=(), it's necessary.
 ----
 
-Apply the new modprobe.d and mkinitcpio.conf changes: +
-`sudo mkinitcpio -P`
+We're going to do a couple extra changes here instead of later on to prevent one extra reboot.
 
-== 2. Virtual machine requisites
-
-`sudo pacman -S qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
-
-Assign your user to the correct groups to prevent issues in the future: +
-`sudo usermod -a -G qemu,video,kvm,libvirt,libvirt-qemu "$USER"`
-
-Sudo edit: `/boot/loader/entries/linux-cachyos.conf`
-----
-# Add the following to 'options':
-# intel_iommu=on iommu=pt tsc=reliable no_timer_check
-----
-
-Sudo edit: `/etc/libvirt/network.conf`, and change `firewall_backend` to `iptables`. This is necessary since we're using iptables-nft and not nftables standalone.
-
-Enable and start the required services to use Virtual Machine Manager: +
-`sudo systemctl enable --now libvirtd.service`
-
-
-== 3. Virtual machine setup
-
-Ensure the disk you'll use for the VM is mounted to `/mnt` instead of `/run/media`.
-
-When creating a disk, ensure its Format is 'raw' instead of 'qcow'; VirtualBox is the better option for disk snapshots. Use this to get exact disk size measurements: https://www.gbmb.org/tb-to-gib
-
-Add an additional SATA CDROM to the VM, so you can load the latest `virtio-win-*.iso` into it; get the ISO from https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D[here]. At first this is used so you have disk drivers, but later on you can install all of its drivers inside of the VM by running `virtio-win-guest-tools` (after Windows is installed).
-
-Install Windows 10 LTSC 2019 as it is the best edition to use for performance and stability.
-
-WARNING: Make sure the disk type is virtio before installing Windows 10, otherwise you have to follow these steps to correct this mistake later for higher performance: https://superuser.com/a/1253728
-
-
-== 4. Looking Glass setup
-
-`paru -S looking-glass-guest looking-glass-module-dkms obs-plugin-looking-glass`
-
-https://looking-glass.io/docs/B7/ivshmem_kvmfr/[Follow through the official documentation] but skip past the "Installing" step as you've already done that the Arch way.
-
-Install the Looking Glass Host to the Windows VM, and run it.
-
-Be sure to plug in a display port into the passed through GPU, otherwise Looking Glass will not work. It could be a real HDMI or DisplayPort plug (recommended), or a dummy plug.
-
-== 5. Optimizing VM performance and hiding the VM from some software
-
-Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mouse-display-audio[its own recommendations], follow those in addition to what my guide recommends below.
-
-Sudo edit: `/etc/sysctl.d/qemu.conf`
+Sudo edit: `/etc/sysctl.d/99-qemu.conf`
 ----
 # Prevents GPU timeouts or other VM hanging while running video games.
 kernel.split_lock_mitigate=0
+
+# Replicates the value set by default in SteamOS. Not strictly necessary but here just incase.
+vm.max_map_count = 2147483642
 ----
 
 Sudo edit: `/etc/modprobe.d/qemu.conf`
@@ -132,16 +107,81 @@ options kvm_amd npt=1 avic=1
 options kvm_intel ple_gap=0 ple_window=0
 ----
 
-Apply the new modprobe.d changes; afterwards you need to reboot: +
+Sudo edit: `/boot/loader/entries/linux-cachyos.conf`
+----
+# Add the following to 'options':
+# intel_iommu=on iommu=pt tsc=reliable no_timer_check
+----
+
+Apply the new modprobe.d and mkinitcpio.conf changes: +
 `sudo mkinitcpio -P`
+
+Reboot your PC: +
+`reboot`
+
+== 2. Virtual machine requisites
+
+Install the necessary packages: +
+`sudo pacman -S qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
+
+Assign your user to the correct groups to prevent issues in the future: +
+`sudo usermod -a -G qemu,video,kvm,libvirt,libvirt-qemu "$USER"`
+
+Sudo edit: `/etc/libvirt/network.conf`, and change `firewall_backend` to `iptables`. This is necessary since we're using iptables-nft and not nftables standalone.
+
+Enable and start the required services to use Virtual Machine Manager: +
+`sudo systemctl enable --now libvirtd.service`
+
+
+== 3. Virtual machine setup
+
+Enable XML editing in Virtual Machine Manager before doing anything else: Edit -> Preferences -> Check "Enable XML editing", then close.
+
+Ensure the disk file location you'll use for the VM is mounted to `/mnt` instead of `/run/media`, or you could pass-through an entire NVMe disk. Up to you.
+
+When creating a disk file, ensure its Format is 'raw' instead of 'qcow', and https://www.gbmb.org/tb-to-gib[use this calculator] to get exact disk size measurements. VirtualBox is the only good option for snapshots in my opinion, so if you do malware analysis, that's the way to go.
+
+Add an additional SATA CDROM to the VM, so you can load the latest `virtio-win-*.iso` into it; get the ISO from https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D[here]. At first this is used so you have disk drivers, but later on you can install all of its drivers inside of the VM by running `virtio-win-guest-tools` (after Windows is installed).
+
+Add the PCI Host Device for your NVIDIA GPU and its accompanying audio device.
+
+Install Windows 10 LTSC 2019 as it is the best edition to use for performance and stability.
+
+WARNING: Make sure the disk type is virtio before installing Windows 10, otherwise you have to follow these steps to correct this mistake later for higher performance: https://superuser.com/a/1253728
+
+
+== 4. Looking Glass setup
+
+`paru -S looking-glass looking-glass-module-dkms obs-plugin-looking-glass`
+
+https://looking-glass.io/docs/B7/ivshmem_kvmfr/[Follow through the official documentation] but skip past the "Installing" step as you've already done that the Arch way.
+
+NOTE: Run `sudo chmod 0660 /dev/kvmfr0` if you're getting permission errors for `/dev/kvmfr0` from QEMU.
+
+Install the Looking Glass Host to the Windows VM, and run it.
+
+Be sure to plug in a display port into the passed through GPU, otherwise Looking Glass will not work. It could be a real HDMI or DisplayPort plug (recommended), or a dummy plug.
+
+To stop the annoyance of getting asked to allow the microphone and hide the microphone icon, edit: `~/.config/looking-glass/client.ini`:
+----
+[audio]
+micDefault=allow
+micShowIndicator=no
+----
+
+Ensure the display scaling in KDE Plasma is set to intervals of 25%, otherwise Looking Glass will look blurry (such as on 115% scaling instead of 125% scaling).
+
+== 5. Optimizing VM performance and hiding the VM from some software
+
+Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mouse-display-audio[its own recommendations], follow those in addition to what my guide recommends below.
 
 For the XML changes below, here is the topology of the 9800X3D CPU used (relevant for the CPU pinning): +
 image:lstopo.png[]
 
-Show hardware topology to understand what your CPU's pinning would look like; make sure to press kbd:[f] if there appears to be missing CPU cores: +
+Show the hardware topology to understand what your CPU's pinning would look like, but make sure to press kbd:[f] if there appears to be missing CPU cores: +
 `lstopo`
 
-Enable XML editing in Virtual Machine Manager, then set or change the following:
+Set or change the following in your VM XML:
 ----
   # Put under </currentMemory>
   <memoryBacking>
@@ -149,10 +189,11 @@ Enable XML editing in Virtual Machine Manager, then set or change the following:
     <locked/>
   </memoryBacking>
 
-  # Put inside <clock>; gets past RDTSC exit checks by faking a 0.6GHz CPU frequency
+  # Put inside <clock>; gets past RDTSC exit checks by faking a 0.6GHz CPU frequency.
   <timer name="tsc" frequency="600000000"/>
 
-  # Change the cores to the amount allocated to the VM; 12 cores would be cores="6"
+  # Change the cores to the amount allocated to the VM; 12 cores would be cores="6".
+  # Remove "svm" if using an Intel CPU, otherwise remove "vmx" if using an AMD CPU.
   <cpu mode="host-passthrough" check="none" migratable="off">
     <topology sockets="1" dies="1" clusters="1" cores="7" threads="2"/>
     <cache mode="passthrough"/>
@@ -209,10 +250,12 @@ Enable XML editing in Virtual Machine Manager, then set or change the following:
     <source file="/mnt/nvme/win11.img"/>
     <target dev="vda" bus="virtio"/>
   </disk>
+
+  # Under <interface type="network">, ensure the model type is "virtio"
 ----
 
-Create the automatic hooks file: +
-`sudo mkdir -p /etc/libvirt/hooks; sudo touch /etc/libvirt/hooks/qemu`
+Create the automatic hooks directory: +
+`sudo mkdir -p /etc/libvirt/hooks`
 
 Sudo edit: `/etc/libvirt/hooks/qemu`; change the vm_running and vm_not_running core numbers to what's applicable to your CPU.
 ----
@@ -235,7 +278,7 @@ fi
 
 .Go into the Windows VM and do the following:
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
-- Run "Turn Windows features on or off". Ensure that "Hyper-V" and "Windows Hypervisor Platform" is left unchecked as these features will destroy performance.
+- Run "Turn Windows features on or off". Ensure that "Guarded Host", "Hyper-V", "Virtual Machine Platform", "Windows Hypervisor Platform", "Windows Sandbox", and "Windows Subsystem for Linux" is left unchecked as these features will destroy performance.
 
 == 6. Sharing files to the Windows VM without enabling shared memory (for better performance)
 
