@@ -10,9 +10,9 @@ ifdef::env-github[]
 endif::[]
 
 == About
-This guide's goal is to be the easiest to follow, and to bypass some VM detections without slowing down performance.
+This guide's goal is to be the easiest to follow, and to bypass some VM detections without slowing down performance. The guide built on CachyOS using systemd-boot and KDE Plasma desktop.
 
-It is for CachyOS using systemd-boot and its defaults.
+There will be no custom compiling QEMU in attempts to hide it. Later on, there may be an accompanying bootkit that I wrote to hide as many QEMU traces as I can muster. This'll take a long time, probably a year from now, so don't expect it any time soon or at all.
 
 The host GPU is from AMD, while the guest (VM / Virtual Machine / VFIO) GPU is from NVIDIA.
 
@@ -107,11 +107,14 @@ options kvm_amd npt=1 avic=1
 options kvm_intel ple_gap=0 ple_window=0
 ----
 
-Sudo edit: `/boot/loader/entries/linux-cachyos.conf`
+Sudo edit: `/etc/sdboot-manage.conf.d/99-qemu.conf`
 ----
-# Add the following to 'options':
-# intel_iommu=on iommu=pt tsc=reliable no_timer_check
+# Remove intel_iommu=on if using an AMD CPU.
+LINUX_OPTIONS="intel_iommu=on iommu=pt tsc=reliable no_timer_check"
 ----
+
+Apply the bootloader kernel option changes: +
+`sudo sdboot-manage gen`
 
 Apply the new modprobe.d and mkinitcpio.conf changes: +
 `sudo mkinitcpio -P`
@@ -187,6 +190,7 @@ Set or change the following in your VM XML:
   <memoryBacking>
     <nosharepages/>
     <locked/>
+    <allocation mode="immediate"/>
   </memoryBacking>
 
   # Put inside <clock>; gets past RDTSC exit checks by faking a 0.6GHz CPU frequency.
@@ -205,6 +209,7 @@ Set or change the following in your VM XML:
   </cpu>
 
   # Put under </vcpu>
+  # Note that setting a vcpu scheduler can cause your PC to lockup
   <iothreads>1</iothreads>
   <cputune>
     <vcpupin vcpu='0' cpuset='0'/>
@@ -288,7 +293,8 @@ Sudo edit: `/etc/libvirt/hooks/qemu`; change the vm_running and vm_not_running c
 #!/bin/sh
 
 command=$2
-vm_running="7,15"
+# It's based on Logical (L#) cores, not Physical (P#) cores.
+vm_running="14-15"
 vm_not_running="0-15"
 
 if [ "$command" = "started" ]; then
