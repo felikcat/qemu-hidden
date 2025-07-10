@@ -226,6 +226,7 @@ Set or change the following in your VM XML:
   </cputune>
 
   # Put inside <features>; if you have issues, take out each line inside hyperv one by one to test (except vendor_id)
+  # If using an Intel CPU: change the vendor_id to "GenuineIntel"
     <pmu state="off"/>
     <kvm>
       <hidden state="on"/>
