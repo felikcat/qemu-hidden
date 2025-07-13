@@ -21,10 +21,8 @@ NOTE: These instructions also work for GPUs from Intel or AMD, but there's no ad
 The operating system of choice is Windows 10 LTSC 2019, get it from the MyDigitalLife forums. Please don't use Windows 11, it https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will not work] without purposefully sacrificing your performance after the June 2025 updates.
 
 == 1. GPU passthrough
-Since the NVIDIA GPU won't be used on Linux, remove its drivers to prevent problems and lessen the system bloat. For me, OBS Studio kept trying to use NVIDIA drivers instead of the AMD drivers despite being installed: +
-`sudo pacman -R nvidia-settings nvidia-utils lib32-nvidia-utils linux-cachyos-nvidia-open libxnvctrl libva-nvidia-driver`
-
-NOTE: Ignore the errors for failing to find the NVIDIA GPU driver modules, as mkinitcpio will still work correctly.
+Programs such as OBS Studio will keep trying to use NVIDIA drivers instead of the AMD drivers if the LIBVA_DRIVER_NAME is still set to nvidia, in which the libva-nvidia-driver package enforces; for OBS, this means you can't record using GPU hardware acceleration: +
+`sudo pacman -R libva-nvidia-driver`
 
 Create the directory if it doesn't exist: +
 `mkdir -p ~/.config/environment.d`
