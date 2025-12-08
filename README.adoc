@@ -10,7 +10,7 @@ ifdef::env-github[]
 endif::[]
 
 == About
-This guide's goal is to be the easiest to follow, and to bypass some VM detections without slowing down performance. The guide built on CachyOS using systemd-boot and KDE Plasma desktop.
+This guide's goal is to be the easiest to follow, and to bypass some VM detections without slowing down performance. The guide built on CachyOS using systemd-boot or Limine and KDE Plasma desktop.
 
 There will be no custom compiling QEMU in attempts to hide it. Later on, there may be an accompanying bootkit that I wrote to hide as many QEMU traces as I can muster. This'll take a long time, probably a year from now, so don't expect it any time soon or at all.
 
@@ -105,16 +105,16 @@ options kvm_amd npt=1 avic=1
 options kvm_intel ple_gap=0 ple_window=0
 ----
 
-Sudo edit: `/etc/sdboot-manage.conf.d/99-qemu.conf`
+Sudo edit `/etc/sdboot-manage.conf.d/99-qemu.conf` or `/etc/default/limine` (do not append LINUX_OPTIONS="" if using Limine):
 ----
 # Remove intel_iommu=on if using an AMD CPU.
 LINUX_OPTIONS="intel_iommu=on iommu=pt tsc=reliable no_timer_check"
 ----
 
 Apply the bootloader kernel option changes: +
-`sudo sdboot-manage gen`
+`sudo sdboot-manage gen` or `sudo limine-mkinitcpio`
 
-Apply the new modprobe.d and mkinitcpio.conf changes: +
+(Unnecessary on Limine) Apply the new modprobe.d and mkinitcpio.conf changes: +
 `sudo mkinitcpio -P`
 
 Reboot your PC: +
@@ -123,7 +123,7 @@ Reboot your PC: +
 == 2. Virtual machine requisites
 
 Install the necessary packages: +
-`sudo pacman -S qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
+`sudo pacman -Syu qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
 
 Assign your user to the correct groups to prevent issues in the future: +
 `sudo usermod -a -G qemu,video,kvm,libvirt,libvirt-qemu "$USER"`
