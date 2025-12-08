@@ -7,6 +7,7 @@ ifdef::env-github[]
 :important-caption: :heavy_exclamation_mark:
 :caution-caption: :fire:
 :warning-caption: :warning:
+:toc:
 endif::[]
 
 == About
@@ -20,7 +21,7 @@ NOTE: These instructions also work for GPUs from Intel or AMD, but there's no ad
 
 The operating system of choice is Windows 10 LTSC 2019, get it from the MyDigitalLife forums. Please don't use Windows 11, it https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will not work] without purposefully sacrificing your performance after the June 2025 updates.
 
-== 1. GPU passthrough
+== [Optional] GPU passthrough
 Programs such as OBS Studio will keep trying to use NVIDIA drivers instead of the AMD drivers if the LIBVA_DRIVER_NAME is still set to nvidia, in which the libva-nvidia-driver package enforces; for OBS, this means you can't record using GPU hardware acceleration: +
 `sudo pacman -R libva-nvidia-driver`
 
@@ -120,7 +121,7 @@ Apply the bootloader kernel option changes: +
 Reboot your PC: +
 `reboot`
 
-== 2. Virtual machine requisites
+== 1. Virtual machine requisites
 
 Install the necessary packages: +
 `sudo pacman -Syu qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
@@ -134,7 +135,7 @@ Enable and start the required services to use Virtual Machine Manager: +
 `sudo systemctl enable --now libvirtd.service`
 
 
-== 3. Virtual machine setup
+== 2. Virtual machine setup
 
 Enable XML editing in Virtual Machine Manager before doing anything else: Edit -> Preferences -> Check "Enable XML editing", then close.
 
@@ -151,7 +152,7 @@ Install Windows 10 LTSC 2019 as it is the best edition to use for performance an
 WARNING: Make sure the disk type is virtio before installing Windows 10, otherwise you have to follow these steps to correct this mistake later for higher performance: https://superuser.com/a/1253728
 
 
-== 4. Looking Glass setup
+== [Optional] Looking Glass setup
 
 `paru -S looking-glass looking-glass-module-dkms obs-plugin-looking-glass`
 
@@ -172,7 +173,7 @@ micShowIndicator=no
 
 Ensure the display scaling in KDE Plasma is set to intervals of 25%, otherwise Looking Glass will look blurry (such as on 115% scaling instead of 125% scaling).
 
-== 5. Optimizing VM performance and hiding the VM from some software
+== 3. Optimizing VM performance and hiding the VM from some software
 
 Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mouse-display-audio[its own recommendations], follow those in addition to what my guide recommends below.
 
@@ -310,7 +311,7 @@ fi
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
 - Run "Turn Windows features on or off". Ensure that "Guarded Host", "Hyper-V", "Virtual Machine Platform", "Windows Hypervisor Platform", "Windows Sandbox", and "Windows Subsystem for Linux" is left unchecked as these features will destroy performance.
 
-== 6. Sharing files to the Windows VM without enabling shared memory (for better performance)
+== [Optional] Sharing files to the Windows VM without enabling shared memory (for better performance)
 
 Edit: `/etc/samba/smb.conf`
 ----
