@@ -331,9 +331,9 @@ allocate_hugepages() {
 }
 
 # -------------------------
-# Event: STARTED
+# Event: PREPARE
 # -------------------------
-if [ "$command" = "started" ]; then
+if [ "$command" = "prepare" ]; then
 
   # Allocate hugepages BEFORE isolating CPUs
   vfio-isolate \
@@ -391,9 +391,6 @@ noSwapDamage=1
 
 .Looking Glass is crashing / the VM freezes
 Update your NVIDIA drivers in the VM.
-
-.If the VM doesn't start with the error "unable to map backing store for guest RAM", run this before starting the VM:
-. `sudo bash /etc/libvirt/hooks/qemu YOUR_VM_NAME_HERE started begin -`
 
 .Go into the Windows VM and do the following:
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
