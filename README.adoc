@@ -336,12 +336,12 @@ allocate_hugepages() {
 if [ "$command" = "started" ]; then
 
   # Allocate hugepages BEFORE isolating CPUs
-  vfio-isolate -u /tmp/vfio_isolate_history \
+  vfio-isolate \
     drop-caches
   allocate_hugepages
 
   # Isolate VM cores but keep host on HOST_CORES
-  vfio-isolate \
+  vfio-isolate -u /tmp/vfio_isolate_history \
     cpu-governor performance C${ALL_CORES} \
     cpuset-modify --cpus C${HOST_CORES} /system.slice \
     cpuset-modify --cpus C${HOST_CORES} /user.slice \
