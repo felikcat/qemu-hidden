@@ -186,6 +186,8 @@ Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mou
 For the XML changes below, here is the topology of the 9800X3D CPU used (relevant for the CPU pinning): +
 image:lstopo.png[]
 
+NOTE: You can give ChatGPT or a different AI a screenshot of your lstopo for it to tell you what's the correct <vcpupin> and CPU core isolation order; ask for both.
+
 Show the hardware topology to understand what your CPU's pinning would look like, but make sure to press kbd:[f] if there appears to be missing CPU cores: +
 `lstopo`
 
@@ -215,22 +217,19 @@ Set or change the following in your VM XML:
   </cpu>
 
   # Put under </vcpu>
-  <iothreads>1</iothreads>
   <cputune>
-    <vcpupin vcpu='0' cpuset='0'/>
-    <vcpupin vcpu='1' cpuset='8'/>
-    <vcpupin vcpu='2' cpuset='1'/>
-    <vcpupin vcpu='3' cpuset='9'/>
-    <vcpupin vcpu='4' cpuset='2'/>
-    <vcpupin vcpu='5' cpuset='10'/>
-    <vcpupin vcpu='6' cpuset='3'/>
-    <vcpupin vcpu='7' cpuset='11'/>
-    <vcpupin vcpu='8' cpuset='4'/>
-    <vcpupin vcpu='9' cpuset='12'/>
-    <vcpupin vcpu='10' cpuset='5'/>
-    <vcpupin vcpu='11' cpuset='13'/>
-    <vcpusched vcpus='0-11' scheduler='rr' priority='1'/>
-
+    <vcpupin vcpu="0" cpuset="1"/>
+    <vcpupin vcpu="1" cpuset="9"/>
+    <vcpupin vcpu="2" cpuset="2"/>
+    <vcpupin vcpu="3" cpuset="10"/>
+    <vcpupin vcpu="4" cpuset="3"/>
+    <vcpupin vcpu="5" cpuset="11"/>
+    <vcpupin vcpu="6" cpuset="4"/>
+    <vcpupin vcpu="7" cpuset="12"/>
+    <vcpupin vcpu="8" cpuset="5"/>
+    <vcpupin vcpu="9" cpuset="13"/>
+    <vcpupin vcpu="10" cpuset="6"/>
+    <vcpupin vcpu="11" cpuset="14"/>
   </cputune>
 
   # Replace the inside of <features> with this; if you have issues, take out each line inside hyperv one by one to test (except vendor_id)
@@ -303,11 +302,12 @@ Set or change the following in your VM XML:
 # CPU topology configuration
 # -------------------------
 
-# VM gets these logical cores
-VM_CORES="0-12"
+# VM gets these logical cores; never allocate 0 or 1
+# I would recommend giving AI an image of your lstopo to set this and HOST_CORES
+VM_CORES="2-7,10-15"
 
 # Host keeps these logical cores; always use at least 4 cores
-HOST_CORES="12-15"
+HOST_CORES="0-1,8-9"
 
 # Total available system cores
 ALL_CORES="0-15"
@@ -359,7 +359,7 @@ if [ "$command" = "started" ]; then
   allocate_hugepages
 
   # Isolate VM cores but keep host on HOST_CORES
-  vfio-isolate -u /tmp/vfio_isolate_history \
+  vfio-isolate \
     cpu-governor performance C${ALL_CORES} \
     cpuset-modify --cpus C${HOST_CORES} /system.slice \
     cpuset-modify --cpus C${HOST_CORES} /user.slice \
@@ -377,6 +377,13 @@ elif [ "$command" = "release" ]; then
   echo "Releasing VFIO isolation..."
   vfio-isolate restore /tmp/vfio_isolate_history
 
+  # Incase vfio-isolate restore failed
+  vfio-isolate \
+    cpuset-modify --cpus C${ALL_CORES} /system.slice \
+    cpuset-modify --cpus C${ALL_CORES} /user.slice \
+    cpuset-modify --cpus C${ALL_CORES} /init.scope \
+    irq-affinity mask C${ALL_CORES}
+
   echo "Dropping hugepages..."
   echo 0 > /proc/sys/vm/nr_hugepages
 
@@ -387,6 +394,11 @@ fi
 
 * Restart libvirtd to ensure it recognizes the new hook, and ensure the file permissions are correct: +
 `sudo chmod +x /etc/libvirt/hooks/qemu; sudo systemctl restart virtqemud.service libvirtd.service`
+
+.If your host audio stutters while the VM is running, this may fix it:
+. `wget https://github.com/Viciooso/Fix-VM-Audio-Stuttering/raw/9f6f346e63a3a73b72a8d91e4e8fb3351e8b84d6/fix_vm_audio.sh`
+. `chmod +x fix_vm_audio.sh`
+. `./fix_vm_audio.sh`
 
 .Go into the Windows VM and do the following:
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
