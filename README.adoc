@@ -170,11 +170,13 @@ Install the Looking Glass Host to the Windows or Linux VM, and run it.
 
 Be sure to plug in a display port into the passed through GPU, otherwise Looking Glass will not work. It could be a real HDMI or DisplayPort plug (recommended), or a dummy plug.
 
-To stop the annoyance of getting asked to allow the microphone and hide the microphone icon, edit: `~/.config/looking-glass/client.ini`:
+NOTE: All the client options are listed here: https://looking-glass.io/docs/B7/usage/
+To stop the annoyance of getting asked to allow the microphone and hide the microphone icon, and to reduce the audio delay, edit: `~/.config/looking-glass/client.ini`:
 ----
 [audio]
 micDefault=allow
 micShowIndicator=no
+bufferLatency=0
 ----
 
 Ensure the display scaling in KDE Plasma is set to intervals of 25%, otherwise Looking Glass will look blurry (such as on 115% scaling instead of 125% scaling).
@@ -216,7 +218,8 @@ Set or change the following in your VM XML:
     <feature policy="disable" name="vmx"/>
   </cpu>
 
-  # Put under </vcpu>
+  # Put under </vcpu>.
+  # <vcpusched> will crash the PC if the CPU pinning is wrong; that does not mean remove it!
   <cputune>
     <vcpupin vcpu="0" cpuset="1"/>
     <vcpupin vcpu="1" cpuset="9"/>
@@ -230,10 +233,10 @@ Set or change the following in your VM XML:
     <vcpupin vcpu="9" cpuset="13"/>
     <vcpupin vcpu="10" cpuset="6"/>
     <vcpupin vcpu="11" cpuset="14"/>
+    <vcpusched vcpus='0-11' scheduler='fifo' priority='99'/>
   </cputune>
 
   # Replace the inside of <features> with this; if you have issues, take out each line inside hyperv one by one to test (except vendor_id)
-  # If using an Intel CPU: change the vendor_id to "GenuineIntel"
     <acpi/>
     <apic/>
     <pmu state="off"/>
@@ -245,29 +248,7 @@ Set or change the following in your VM XML:
       <dirty-ring state="on" size="4096"/>
     </kvm>
     <ioapic driver='kvm'/>
-    <hyperv mode="custom">
-      <relaxed state="on"/>
-      <vapic state="on"/>
-      <spinlocks state="on" retries="4096"/>
-      <vpindex state="on"/>
-      <runtime state="on"/>
-      <synic state="on"/>
-      <stimer state="on">
-        <direct state="on"/>
-      </stimer>
-      <reset state="on"/>
-      <vendor_id state="on" value="AuthenticAMD"/>
-      <frequencies state="on"/>
-      <reenlightenment state="on"/>
-      <tlbflush state="on">
-        <direct state="on"/>
-        <extended state="on"/>
-      </tlbflush>
-      <ipi state="on"/>
-      <evmcs state="on"/>
-      <emsr_bitmap state="on"/>
-      <xmm_input state="on"/>
-    </hyperv>
+    <hyperv mode="passthrough"/>
     <vmport state="off"/>
     <smm state="on"/>
 
@@ -277,7 +258,8 @@ Set or change the following in your VM XML:
   # Put inside <devices>
   <memballoon model="none"/>
 
-  # Put inside <qemu:commandline>
+  # Put inside <qemu:commandline>, this helps with CPU performance. 
+  # Side effect: the host says the VM's CPU cores are always 100% usage
   <qemu:arg value="-overcommit"/>
   <qemu:arg value="cpu-pm=on"/>
 
@@ -395,10 +377,23 @@ fi
 * Restart libvirtd to ensure it recognizes the new hook, and ensure the file permissions are correct: +
 `sudo chmod +x /etc/libvirt/hooks/qemu; sudo systemctl restart virtqemud.service libvirtd.service`
 
-.If your host audio stutters while the VM is running, this may fix it:
-. `wget https://github.com/Viciooso/Fix-VM-Audio-Stuttering/raw/9f6f346e63a3a73b72a8d91e4e8fb3351e8b84d6/fix_vm_audio.sh`
-. `chmod +x fix_vm_audio.sh`
-. `./fix_vm_audio.sh`
+.Increasing Looking Glass performance
+* Disable Game Mode in Windows.
+* Put in `~/.config/looking-glass/client.ini`: +
+----
+[win]
+jitRender=1
+
+[egl]
+noSwapDamage=1
+
+----
+
+.Looking Glass is crashing / the VM freezes
+Update your NVIDIA drivers in the VM.
+
+.If the VM doesn't start with the error "unable to map backing store for guest RAM", run this before starting the VM:
+. `sudo bash /etc/libvirt/hooks/qemu YOUR_VM_NAME_HERE started begin -`
 
 .Go into the Windows VM and do the following:
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
