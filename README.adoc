@@ -11,15 +11,14 @@ ifdef::env-github[]
 endif::[]
 
 == About
-This guide's goal is to be the easiest to follow, and to bypass some VM detections without slowing down performance. The guide built on CachyOS using systemd-boot or Limine and KDE Plasma desktop.
+This guide's goal is to be the easiest to follow, and to bypass some VM detections without slowing down performance. The guide built on CachyOS using systemd-boot or Limine (recommended) and KDE Plasma desktop.
 
-There will be no custom compiling QEMU in attempts to hide it. Later on, there may be an accompanying bootkit that I wrote to hide as many QEMU traces as I can muster. This'll take a long time, probably a year from now, so don't expect it any time soon or at all.
+There's currently no custom compiling QEMU in attempts to hide it, it's simply an SMBIOS information and rdtsc exit timing check bypass (that doesn't require kernel patching or have a performance penalty).
 
 The host GPU is from AMD, while the guest (VM / Virtual Machine / VFIO) GPU is from NVIDIA.
 
-NOTE: These instructions also work for GPUs from Intel or AMD, but there's no advice on resolving the reset bug or other problems they may have.
+NOTE: These instructions also work for GPUs from Intel or AMD, but there's no advice on resolving the reset bug or other problems they may have inside a virtual machine.
 
-The operating system of choice is Windows 10 LTSC 2019, get it from the MyDigitalLife forums. Please don't use Windows 11, it https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will not work] without purposefully sacrificing your performance after the June 2025 updates.
 
 == [Optional] GPU passthrough
 Programs such as OBS Studio will keep trying to use NVIDIA drivers instead of the AMD drivers if the LIBVA_DRIVER_NAME is still set to nvidia, in which the libva-nvidia-driver package enforces; for OBS, this means you can't record using GPU hardware acceleration: +
@@ -123,8 +122,8 @@ Reboot your PC: +
 
 == 1. Virtual machine requisites
 
-Install the necessary packages: +
-`sudo pacman -Syu qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
+.Install the necessary packages: +
+* `sudo pacman -Syu qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
 
 Assign your user to the correct groups to prevent issues in the future: +
 `sudo usermod -a -G qemu,video,kvm,libvirt,libvirt-qemu "$USER"`
@@ -137,20 +136,27 @@ Enable and start the required services to use Virtual Machine Manager: +
 
 == 2. Virtual machine setup
 
+The operating system of choice either CachyOS or Windows 10 LTSC 2019 (get that from the MyDigitalLife forums). Please don't use Windows 11, it https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will not work] without purposefully sacrificing your performance after the June 2025 updates.
+
 Enable XML editing in Virtual Machine Manager before doing anything else: Edit -> Preferences -> Check "Enable XML editing", then close.
+
+If you plan to use CachyOS / a Linux distro in a VM, ensure in "Display Spice" that OpenGL is checked and the "Listen type" is set to 'None'; unless you're doing GPU passthrough, then don't do this.
+
+
+WARNING: Make sure the disk type is virtio before installing Windows, otherwise you have to follow these steps to correct this mistake later for higher performance: https://superuser.com/a/1253728 +
+- Be sure that the Video 'VGA' is used inorder to see any graphical output in Safe Mode, you can revert to Video 'None' afterwards.
 
 Ensure the disk file location you'll use for the VM is mounted to `/mnt` instead of `/run/media`, or you could pass-through an entire NVMe disk. Up to you.
 
 When creating a disk file, ensure its Format is 'raw' instead of 'qcow', and https://www.gbmb.org/tb-to-gib[use this calculator] to get exact disk size measurements. VirtualBox is the only good option for snapshots in my opinion, so if you do malware analysis, that's the way to go.
 
-Add an additional SATA CDROM to the VM, so you can load the latest `virtio-win-*.iso` into it; get the ISO from https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D[here]. At first this is used so you have disk drivers, but later on you can install all of its drivers inside of the VM by running `virtio-win-guest-tools` (after Windows is installed).
+For Windows: Add an additional SATA CDROM to the VM, so you can load the latest `virtio-win-*.iso` into it; get the ISO from https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/?C=M;O=D[here]. At first this is used so you have disk drivers, but later on you can install all of its drivers inside of the VM by running `virtio-win-guest-tools` (after Windows is installed).
 
 Add the PCI Host Device for your NVIDIA GPU and its accompanying audio device.
 
-Install Windows 10 LTSC 2019 as it is the best edition to use for performance and stability.
 
-WARNING: Make sure the disk type is virtio before installing Windows 10, otherwise you have to follow these steps to correct this mistake later for higher performance: https://superuser.com/a/1253728
-
+== [Optional] Cloning the VM
+Shut down the VM, then choose 'Virtual Machine' -> 'Clone'.
 
 == [Optional] Looking Glass setup
 
@@ -160,7 +166,7 @@ https://looking-glass.io/docs/B7/ivshmem_kvmfr/[Follow through the official docu
 
 NOTE: Run `sudo chmod 0660 /dev/kvmfr0` if you're getting permission errors for `/dev/kvmfr0` from QEMU.
 
-Install the Looking Glass Host to the Windows VM, and run it.
+Install the Looking Glass Host to the Windows or Linux VM, and run it.
 
 Be sure to plug in a display port into the passed through GPU, otherwise Looking Glass will not work. It could be a real HDMI or DisplayPort plug (recommended), or a dummy plug.
 
@@ -185,8 +191,9 @@ Show the hardware topology to understand what your CPU's pinning would look like
 
 Set or change the following in your VM XML:
 ----
-  # Put under </currentMemory>
+  # Put after </currentMemory>
   <memoryBacking>
+    <hugepages/>
     <nosharepages/>
     <locked/>
     <allocation mode="immediate"/>
@@ -195,10 +202,10 @@ Set or change the following in your VM XML:
   # Put inside <clock>; gets past RDTSC exit checks by faking a 0.6GHz CPU frequency.
   <timer name="tsc" frequency="600000000"/>
 
-  # Change the cores to the amount allocated to the VM; 12 cores would be cores="6".
+  # Change the cores to the amount allocated to the VM; 16 cores would be cores="8".
   # Remove "svm" if using an Intel CPU, otherwise remove "vmx" if using an AMD CPU.
   <cpu mode="host-passthrough" check="none" migratable="off">
-    <topology sockets="1" dies="1" clusters="1" cores="7" threads="2"/>
+    <topology sockets="1" dies="1" clusters="1" cores="6" threads="2"/>
     <cache mode="passthrough"/>
     <feature policy="require" name="topoext"/>
     <feature policy="require" name="invtsc"/>
@@ -208,7 +215,6 @@ Set or change the following in your VM XML:
   </cpu>
 
   # Put under </vcpu>
-  # Note that setting a vcpu scheduler can cause your PC to lockup
   <iothreads>1</iothreads>
   <cputune>
     <vcpupin vcpu='0' cpuset='0'/>
@@ -223,14 +229,14 @@ Set or change the following in your VM XML:
     <vcpupin vcpu='9' cpuset='12'/>
     <vcpupin vcpu='10' cpuset='5'/>
     <vcpupin vcpu='11' cpuset='13'/>
-    <vcpupin vcpu='12' cpuset='6'/>
-    <vcpupin vcpu='13' cpuset='14'/>
-    <vcpusched vcpus='0-13' scheduler='rr' priority='1'/>
-    <iothreadsched iothreads='1' scheduler='fifo' priority='98'/>
+    <vcpusched vcpus='0-11' scheduler='rr' priority='1'/>
+
   </cputune>
 
-  # Put inside <features>; if you have issues, take out each line inside hyperv one by one to test (except vendor_id)
+  # Replace the inside of <features> with this; if you have issues, take out each line inside hyperv one by one to test (except vendor_id)
   # If using an Intel CPU: change the vendor_id to "GenuineIntel"
+    <acpi/>
+    <apic/>
     <pmu state="off"/>
     <kvm>
       <hidden state="on"/>
@@ -263,6 +269,8 @@ Set or change the following in your VM XML:
       <emsr_bitmap state="on"/>
       <xmm_input state="on"/>
     </hyperv>
+    <vmport state="off"/>
+    <smm state="on"/>
 
   # Put inside <os>
   <smbios mode="host"/>
@@ -284,28 +292,101 @@ Set or change the following in your VM XML:
   # Under <interface type="network">, ensure the model type is "virtio"
 ----
 
-Create the automatic hooks directory: +
-`sudo mkdir -p /etc/libvirt/hooks`
+.Setup the QEMU hook: 
+* `sudo mkdir -p /etc/libvirt/hooks`
 
-Sudo edit: `/etc/libvirt/hooks/qemu`; change the vm_running and vm_not_running core numbers to what's applicable to your CPU.
+* Sudo edit `/etc/libvirt/hooks/qemu`, and change the variables to match your configuration:
 ----
-#!/bin/sh
+#!/bin/bash
+
+# -------------------------
+# CPU topology configuration
+# -------------------------
+
+# VM gets these logical cores
+VM_CORES="0-12"
+
+# Host keeps these logical cores; always use at least 4 cores
+HOST_CORES="12-15"
+
+# Total available system cores
+ALL_CORES="0-15"
+
+# VM memory in MB (used for hugepages)
+VM_MEMORY="16384"
 
 command=$2
-# It's based on Logical (L#) cores, not Physical (P#) cores.
-vm_running="14-15"
-vm_not_running="0-15"
 
+# -------------------------
+# Function: allocate hugepages
+# -------------------------
+allocate_hugepages() {
+  HP_KB=$(grep Hugepagesize /proc/meminfo | awk '{print $2}')
+  HP_MB=$((HP_KB / 1024))
+
+  HUGEPAGES=$(( VM_MEMORY / HP_MB ))
+
+  echo "Allocating hugepages: $HUGEPAGES pages ($VM_MEMORY MB / ${HP_MB}MB pagesize)"
+
+  echo $HUGEPAGES > /proc/sys/vm/nr_hugepages
+
+  ALLOC_PAGES=$(cat /proc/sys/vm/nr_hugepages)
+  TRIES=0
+
+  while (( ALLOC_PAGES != HUGEPAGES && TRIES < 1024 ))
+  do
+    echo $HUGEPAGES > /proc/sys/vm/nr_hugepages
+    ALLOC_PAGES=$(cat /proc/sys/vm/nr_hugepages)
+    echo "Allocated $ALLOC_PAGES / $HUGEPAGES"
+    (( TRIES++ ))
+  done
+
+  if [ "$ALLOC_PAGES" -ne "$HUGEPAGES" ]; then
+    echo "Hugepages allocation failed. Reverting..."
+    echo 0 > /proc/sys/vm/nr_hugepages
+    exit 1
+  fi
+}
+
+# -------------------------
+# Event: STARTED
+# -------------------------
 if [ "$command" = "started" ]; then
-    systemctl set-property --runtime -- system.slice AllowedCPUs=${vm_running}
-    systemctl set-property --runtime -- user.slice AllowedCPUs=${vm_running}
-    systemctl set-property --runtime -- init.scope AllowedCPUs=${vm_running}
+
+  # Allocate hugepages BEFORE isolating CPUs
+  vfio-isolate -u /tmp/vfio_isolate_history \
+    drop-caches
+  allocate_hugepages
+
+  # Isolate VM cores but keep host on HOST_CORES
+  vfio-isolate -u /tmp/vfio_isolate_history \
+    cpu-governor performance C${ALL_CORES} \
+    cpuset-modify --cpus C${HOST_CORES} /system.slice \
+    cpuset-modify --cpus C${HOST_CORES} /user.slice \
+    cpuset-modify --cpus C${HOST_CORES} /init.scope \
+    irq-affinity mask C${VM_CORES}
+
+  echo "CPU isolation complete."
+  echo "Host cores: $HOST_CORES"
+  echo "VM cores:   $VM_CORES"
+
+# -------------------------
+# Event: RELEASE
+# -------------------------
 elif [ "$command" = "release" ]; then
-    systemctl set-property --runtime -- system.slice AllowedCPUs=${vm_not_running}
-    systemctl set-property --runtime -- user.slice AllowedCPUs=${vm_not_running}
-    systemctl set-property --runtime -- init.scope AllowedCPUs=${vm_not_running}
+  echo "Releasing VFIO isolation..."
+  vfio-isolate restore /tmp/vfio_isolate_history
+
+  echo "Dropping hugepages..."
+  echo 0 > /proc/sys/vm/nr_hugepages
+
+  echo "Done."
 fi
+
 ----
+
+* Restart libvirtd to ensure it recognizes the new hook, and ensure the file permissions are correct: +
+`sudo chmod +x /etc/libvirt/hooks/qemu; sudo systemctl restart virtqemud.service libvirtd.service`
 
 .Go into the Windows VM and do the following:
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
