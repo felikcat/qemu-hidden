@@ -11,14 +11,31 @@ ifdef::env-github[]
 endif::[]
 
 == About
-This guide's goal is to be the easiest to follow, and to bypass some VM detections without slowing down performance. The guide built on CachyOS using systemd-boot or Limine (recommended) and KDE Plasma desktop.
+This guide's goal is to provide you with a very high-quality VM setup, and to bypass some anti-VM measures without slowing down performance.
 
-There's currently no custom compiling QEMU in attempts to hide it, it's simply an SMBIOS information and rdtsc exit timing check bypass (that doesn't require kernel patching or have a performance penalty).
+The guide built on CachyOS using systemd-boot or Limine (recommended) and KDE Plasma desktop.
 
 The host GPU is from AMD, while the guest (VM / Virtual Machine / VFIO) GPU is from NVIDIA.
 
 NOTE: These instructions also work for GPUs from Intel or AMD, but there's no advice on resolving the reset bug or other problems they may have inside a virtual machine.
 
+
+== 1. Installing Hypervisor Phantom
+
+NOTE: Always install required missing packages, and keep the source to make repatching quicker.
+
+. `git clone --single-branch --depth=1 https://github.com/Scrut1ny/Hypervisor-Phantom && cd Hypervisor-Phantom/ && chmod -R +x *`
+. `sudo ./main.sh`
+. Select QEMU (Patched) Setup.
+. Build & install QEMU to /usr/local/bin [y/n]: **y**
+
+. Select EDK2 (Patched) Setup.
+. When asked to apply host's or custom, choose host's.
+
+. Select Auto Libvirt XML Setup.
+. This will generate a VM for you called 'win10', we're going to copy some things from it to put in our VM config later on.
+
+. The kernel setup is skipped unless you absolutely need it. You'll know for yourself later on.
 
 == [Optional] GPU passthrough
 Programs such as OBS Studio will keep trying to use NVIDIA drivers instead of the AMD drivers if the LIBVA_DRIVER_NAME is still set to nvidia, in which the libva-nvidia-driver package enforces; for OBS, this means you can't record using GPU hardware acceleration: +
@@ -121,10 +138,10 @@ Apply the bootloader kernel option changes: +
 Reboot your PC: +
 `reboot`
 
-== 1. Virtual machine requisites
+== 2. Virtual machine requisites
 
 .Install the necessary packages: +
-* `sudo pacman -Syu qemu-desktop virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
+* `sudo pacman -Syu virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
 
 Assign your user to the correct groups to prevent issues in the future: +
 `sudo usermod -a -G qemu,video,kvm,libvirt,libvirt-qemu "$USER"`
@@ -135,14 +152,13 @@ Enable and start the required services to use Virtual Machine Manager: +
 `sudo systemctl enable --now libvirtd.service`
 
 
-== 2. Virtual machine setup
+== 3. Virtual machine setup
 
 The operating system of choice either CachyOS or Windows 10 LTSC 2019 (get that from the MyDigitalLife forums). Please don't use Windows 11, it https://borncity.com/win/2025/06/18/windows-11-server-2025-june-2025-updates-cause-bsod-in-proxmox-kvm-qemu/[will not work] without purposefully sacrificing your performance after the June 2025 updates.
 
 Enable XML editing in Virtual Machine Manager before doing anything else: Edit -> Preferences -> Check "Enable XML editing", then close.
 
 If you plan to use CachyOS / a Linux distro in a VM, ensure in "Display Spice" that OpenGL is checked and the "Listen type" is set to 'None'; unless you're doing GPU passthrough, then don't do this.
-
 
 WARNING: Make sure the disk type is virtio before installing Windows, otherwise you have to follow these steps to correct this mistake later for higher performance: https://superuser.com/a/1253728 +
 - Be sure that the Video 'VGA' is used inorder to see any graphical output in Safe Mode, you can revert to Video 'None' afterwards.
@@ -155,35 +171,10 @@ For Windows: Add an additional SATA CDROM to the VM, so you can load the latest 
 
 Add the PCI Host Device for your NVIDIA GPU and its accompanying audio device.
 
+WARNING: DO NOT install any operating system for now, we need to configure the VM config first.
 
-== [Optional] Cloning the VM
-Shut down the VM, then choose 'Virtual Machine' -> 'Clone'.
 
-== [Optional] Looking Glass setup
-
-`paru -S looking-glass looking-glass-module-dkms obs-plugin-looking-glass`
-
-https://looking-glass.io/docs/B7/ivshmem_kvmfr/[Follow through the official documentation] but skip past the "Installing" step as you've already done that the Arch way.
-
-NOTE: Run `sudo chmod 0660 /dev/kvmfr0` if you're getting permission errors for `/dev/kvmfr0` from QEMU.
-
-Install the Looking Glass Host to the Windows or Linux VM, and run it.
-
-Be sure to plug in a display port into the passed through GPU, otherwise Looking Glass will not work. It could be a real HDMI or DisplayPort plug (recommended), or a dummy plug.
-
-NOTE: All the client options are listed here: https://looking-glass.io/docs/B7/usage/
-
-To stop the annoyance of getting asked to allow the microphone and hide the microphone icon, and to reduce the audio delay, edit: `~/.config/looking-glass/client.ini`:
-----
-[audio]
-micDefault=allow
-micShowIndicator=no
-bufferLatency=0
-----
-
-Ensure the display scaling in KDE Plasma is set to intervals of 25%, otherwise Looking Glass will look blurry (such as on 115% scaling instead of 125% scaling).
-
-== 3. Optimizing VM performance and hiding the VM from some software
+== 4. Optimizing VM performance and hiding the VM from some software
 
 Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mouse-display-audio[its own recommendations], follow those in addition to what my guide recommends below.
 
@@ -195,8 +186,14 @@ NOTE: You can give ChatGPT or a different AI a screenshot of your lstopo for it 
 Show the hardware topology to understand what your CPU's pinning would look like, but make sure to press kbd:[f] if there appears to be missing CPU cores: +
 `lstopo`
 
+TIP: Bring up the VM called 'win10' that Phantom Hypervisor created, we're going to edit it.
+
 Set or change the following in your VM XML:
 ----
+  # Remove the entire <metadata> and <firmware> block
+
+  # Remove firmware="efi" from <os firmware="efi">, then use the Hypervisor Phantom <loader> and <nvram>
+
   # Put after </currentMemory>
   <memoryBacking>
     <hugepages/>
@@ -205,30 +202,7 @@ Set or change the following in your VM XML:
     <allocation mode="immediate"/>
   </memoryBacking>
 
-  # TSC frequency gets past RDTSC exit checks by faking a 0.6GHz CPU frequency.
-  <clock offset="localtime">
-    <timer name="tsc" frequency="600000000" mode="native"/>
-    <timer name="rtc" tickpolicy="catchup"/>
-    <timer name="pit" tickpolicy="delay"/>
-    <timer name="hpet" present="no"/>
-    <timer name="kvmclock" present="yes"/>
-    <timer name="hypervclock" present="yes"/>
-  </clock>
-
-
-  # Change the cores to the amount allocated to the VM; 16 cores would be cores="8".
-  # Remove "svm" if using an Intel CPU, otherwise remove "vmx" if using an AMD CPU.
-  <cpu mode="host-passthrough" check="none" migratable="off">
-    <topology sockets="1" dies="1" clusters="1" cores="6" threads="2"/>
-    <cache mode="passthrough"/>
-    <feature policy="require" name="topoext"/>
-    <feature policy="require" name="invtsc"/>
-    <feature policy="require" name="tsc-deadline"/>
-    <feature policy="disable" name="svm"/>
-    <feature policy="disable" name="vmx"/>
-  </cpu>
-
-  # Put under </vcpu>.
+  # Put underneath </vcpu>.
   # <vcpusched> will crash the PC if the CPU pinning is wrong; that does not mean remove it!
   <iothreads>1</iothreads>
   <cputune>
@@ -244,15 +218,49 @@ Set or change the following in your VM XML:
     <vcpupin vcpu="9" cpuset="13"/>
     <vcpupin vcpu="10" cpuset="6"/>
     <vcpupin vcpu="11" cpuset="14"/>
-    <vcpusched vcpus='0-11' scheduler='rr' priority='99'/>
-    <emulatorpin cpuset="8-11"/>
-    <iothreadpin iothread="1" cpuset="7"/>
+    <vcpusched vcpus="0-11" scheduler="rr" priority="99"/>
+    <emulatorpin cpuset="0,8"/>
+    <iothreadpin iothread="1" cpuset="15"/>
   </cputune>
 
-  # Replace the inside of <features> with this; if you have issues, take out each line inside hyperv one by one to test (except vendor_id)
+  # TSC frequency gets past RDTSC exit checks by faking a 0.6GHz CPU frequency.
+  <clock offset="localtime">
+    <timer name="tsc" tickpolicy="discard" mode="native"/>
+    <timer name="rtc" tickpolicy="catchup"/>
+    <timer name="pit" tickpolicy="delay"/>
+    <timer name="hpet" present="no"/>
+    <timer name="kvmclock" present="yes"/>
+    <timer name="hypervclock" present="yes"/>
+  </clock>
+  
+  # - Remove stimer to support nested VMs (for further anti-VM detections), which you do by enabling Virtual Machine Platform in "Turn Windows features on or off"
+  # - Change AuthenticAMD to GenuineIntel if using an Intel CPU!
+  <features>
     <acpi/>
     <apic/>
-    <pmu state="off"/>
+    <hyperv mode="custom">
+      <relaxed state="on"/>
+      <vapic state="on"/>
+      <spinlocks state="on" retries="8191"/>
+      <vpindex state="on"/>
+      <runtime state="on"/>
+      <synic state="on"/>
+      <stimer state="on">
+        <direct state="on"/>
+      </stimer>
+      <reset state="on"/>
+      <vendor_id state="on" value="AuthenticAMD"/>
+      <frequencies state="on"/>
+      <reenlightenment state="on"/>
+      <tlbflush state="on">
+        <direct state="on"/>
+        <extended state="on"/>
+      </tlbflush>
+      <ipi state="on"/>
+      <avic state="on"/>
+      <emsr_bitmap state="on"/>
+      <xmm_input state="on"/>
+    </hyperv>
     <kvm>
       <hidden state="on"/>
       <hint-dedicated state="on"/>
@@ -260,19 +268,37 @@ Set or change the following in your VM XML:
       <pv-ipi state="off"/>
       <dirty-ring state="on" size="4096"/>
     </kvm>
-    <ioapic driver='kvm'/>
-    <hyperv mode="passthrough"/>
+    <pmu state="off"/>
     <vmport state="off"/>
     <smm state="on"/>
+    <ioapic driver="kvm"/>
+    <msrs unknown="fault"/>
+  </features>
 
-  # Put inside <os>
-  <smbios mode="host"/>
+  # Change the cores to the amount allocated to the VM; 16 cores would be cores="8".
+  # Remove "svm" if using an Intel CPU, otherwise remove "vmx" if using an AMD CPU.
+  # Set either "svm" or "vmx" to "require" if you need nested VMs for further anti-VM detections
+  <cpu mode="host-passthrough" check="none" migratable="off">
+    <topology sockets="1" dies="1" clusters="1" cores="6" threads="2"/>
+    <cache mode="passthrough"/>
+    <feature policy="require" name="topoext"/>
+    <feature policy="require" name="invtsc"/>
+    <feature policy="require" name="tsc-deadline"/>
+    <feature policy="disable" name="svm"/>
+    <feature policy="disable" name="vmx"/>
+  </cpu>
+
+  # If you are using Looking Glass:
+  # Replace <audio id="1" type="none"/> with:
+  <audio id="1" type="spice"/>
+  # Be sure to add Graphics -> Spice Server (with default settings) inorder to use this!
 
   # Put inside <devices>
-  <memballoon model="none"/>
   <panic model="hyperv"/>
 
-  # Put inside <qemu:commandline>, this helps with CPU performance. 
+  # Remove the entire <shmem name="looking-glass"> block; it's an old and slower method of running LG
+
+  # Put inside <qemu:commandline>, "cpu-pm=on" helps with CPU performance. 
   # Side effect: the host says the VM's CPU cores are always 100% usage
   <qemu:arg value="-overcommit"/>
   <qemu:arg value="cpu-pm=on"/>
@@ -392,6 +418,34 @@ fi
 * Restart libvirtd to ensure it recognizes the new hook, and ensure the file permissions are correct: +
 `sudo chmod +x /etc/libvirt/hooks/qemu; sudo systemctl restart virtqemud.service libvirtd.service`
 
+
+== [Optional] Cloning the VM
+Shut down the VM, then choose 'Virtual Machine' -> 'Clone'.
+
+== [Optional] Looking Glass setup
+
+`paru -S looking-glass looking-glass-module-dkms obs-plugin-looking-glass`
+
+https://looking-glass.io/docs/B7/ivshmem_kvmfr/[Follow through the official documentation] but skip past the "Installing" step as you've already done that the Arch way.
+
+NOTE: Run `sudo chmod 0660 /dev/kvmfr0` if you're getting permission errors for `/dev/kvmfr0` from QEMU.
+
+Install the Looking Glass Host to the Windows or Linux VM, and run it.
+
+Be sure to plug in a display port into the passed through GPU, otherwise Looking Glass will not work. It could be a real HDMI or DisplayPort plug (recommended), or a dummy plug.
+
+NOTE: All the client options are listed here: https://looking-glass.io/docs/B7/usage/
+
+To stop the annoyance of getting asked to allow the microphone and hide the microphone icon, and to reduce the audio delay, edit: `~/.config/looking-glass/client.ini`:
+----
+[audio]
+micDefault=allow
+micShowIndicator=no
+bufferLatency=0
+----
+
+Ensure the display scaling in KDE Plasma is set to intervals of 25%, otherwise Looking Glass will look blurry (such as on 115% scaling instead of 125% scaling).
+
 === Increasing disk performance
 * If your disk is type="qcow2", you can convert to "raw" for additional performance; the disks are likely in `/var/lib/libvirt/images`, if so then you also need to use `sudo` before the command: +
 `qemu-img convert -f qcow2 -O raw DISK_NAME_HERE.qcow2 DISK_NAME_HERE.raw`
@@ -399,6 +453,9 @@ fi
 
 * For Btrfs, ZFS, or bcachefs filesystems, we'll disable CoW (Copy on Write) for the directory the disks are located in: +
 `sudo chattr +C /var/lib/libvirt/images`
+
+=== Lower audio delay and stuttering
+* For Windows: Go into the old audio settings ("More sound settings" in Windows 11), right-click "Speakers" and click "Properties", then in "Enhancements" disable all enhancements and in "Advanced" ensure the Default Format is: 16 bit, 48000 Hz.
 
 === Increasing Looking Glass performance
 * For Windows: Enable HAGS (Hardware Accelerated GPU Scheduling), disable Game Mode, set High Performance in the Power Options, disable Dynamic Ticks and set TSC Sync Policy to enhanced then reboot: +
@@ -422,7 +479,7 @@ Update your NVIDIA drivers in the VM.
 
 === Go into the Windows VM and do the following:
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
-- Run "Turn Windows features on or off". Ensure that "Guarded Host", "Hyper-V", "Virtual Machine Platform", "Windows Hypervisor Platform", "Windows Sandbox", and "Windows Subsystem for Linux" is left unchecked as these features will destroy performance.
+- Run "Turn Windows features on or off". Ensure that "Guarded Host", "Hyper-V", "Virtual Machine Platform", "Windows Hypervisor Platform", "Windows Sandbox", and "Windows Subsystem for Linux" is left unchecked as these features will lower performance.
 
 == [Optional] Sharing files to the Windows VM without enabling shared memory (for better performance)
 
