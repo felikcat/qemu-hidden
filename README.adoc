@@ -99,7 +99,7 @@ Sudo edit: `/etc/mkinitcpio.conf`
 # Check to see if 'modconf' is already included in HOOKS=(), it's necessary.
 ----
 
-We're going to do a couple extra changes here instead of later on to prevent one extra reboot.
+== 2. Virtual machine requisites
 
 Sudo edit: `/etc/sysctl.d/99-qemu.conf`
 ----
@@ -137,8 +137,6 @@ Apply the bootloader kernel option changes: +
 
 Reboot your PC: +
 `reboot`
-
-== 2. Virtual machine requisites
 
 .Install the necessary packages: +
 * `sudo pacman -Syu virt-manager iptables-nft dnsmasq virglrenderer hwloc dmidecode usbutils swtpm samba`
@@ -186,14 +184,8 @@ NOTE: You can give ChatGPT or a different AI a screenshot of your lstopo for it 
 Show the hardware topology to understand what your CPU's pinning would look like, but make sure to press kbd:[f] if there appears to be missing CPU cores: +
 `lstopo`
 
-TIP: Bring up the VM called 'win10' that Phantom Hypervisor created, we're going to edit it.
-
-Set or change the following in your VM XML:
+Bring up the VM called 'win10' that Phantom Hypervisor created, we're going to edit it:
 ----
-  # Remove the entire <metadata> and <firmware> block
-
-  # Remove firmware="efi" from <os firmware="efi">, then use the Hypervisor Phantom <loader> and <nvram>
-
   # Put after </currentMemory>
   <memoryBacking>
     <hugepages/>
@@ -223,7 +215,7 @@ Set or change the following in your VM XML:
     <iothreadpin iothread="1" cpuset="15"/>
   </cputune>
 
-  # TSC frequency gets past RDTSC exit checks by faking a 0.6GHz CPU frequency.
+  # Replace <clock> with this:
   <clock offset="localtime">
     <timer name="tsc" tickpolicy="discard" mode="native"/>
     <timer name="rtc" tickpolicy="catchup"/>
@@ -233,7 +225,7 @@ Set or change the following in your VM XML:
     <timer name="hypervclock" present="yes"/>
   </clock>
   
-  # - Remove stimer to support nested VMs (for further anti-VM detections), which you do by enabling Virtual Machine Platform in "Turn Windows features on or off"
+  # Remove stimer to support nested VMs (for further anti-VM detections), which you do by enabling Virtual Machine Platform in "Turn Windows features on or off"
   # - Change AuthenticAMD to GenuineIntel if using an Intel CPU!
   <features>
     <acpi/>
@@ -277,15 +269,20 @@ Set or change the following in your VM XML:
 
   # Change the cores to the amount allocated to the VM; 16 cores would be cores="8".
   # Remove "svm" if using an Intel CPU, otherwise remove "vmx" if using an AMD CPU.
-  # Set either "svm" or "vmx" to "require" if you need nested VMs for further anti-VM detections
   <cpu mode="host-passthrough" check="none" migratable="off">
     <topology sockets="1" dies="1" clusters="1" cores="6" threads="2"/>
     <cache mode="passthrough"/>
+    <feature policy="require" name="svm"/>
+    <feature policy="require" name="vmx"/>
     <feature policy="require" name="topoext"/>
     <feature policy="require" name="invtsc"/>
-    <feature policy="require" name="tsc-deadline"/>
-    <feature policy="disable" name="svm"/>
-    <feature policy="disable" name="vmx"/>
+    <feature policy="require" name="hypervisor"/>
+    <feature policy="disable" name="vmx-vnmi"/>
+    <feature policy="disable" name="ssbd"/>
+    <feature policy="disable" name="amd-ssbd"/>
+    <feature policy="disable" name="virt-ssbd"/>
+    <feature policy="disable" name="rdtscp"/>
+    <feature policy="disable" name="rdpid"/>
   </cpu>
 
   # If you are using Looking Glass:
@@ -306,7 +303,7 @@ Set or change the following in your VM XML:
   # More optimal settings for virtio on NVMe drives
   # Be sure your disk is 'raw' instead of 'qcow2', if it is 'qcow2', convert it to 'raw'
   <disk type="file" device="disk">
-    <driver name="qemu" type="raw" cache="none" io="native" discard="unmap" iothread="1"/>
+    <driver name="qemu" type="raw" cache="none" io="native" discard="unmap" iothread="1" queues="8"/>
     <source file="/mnt/nvme/win11.img"/>
     <target dev="vda" bus="virtio"/>
   </disk>
@@ -314,7 +311,7 @@ Set or change the following in your VM XML:
   # Under <interface type="network">, ensure the model type is "virtio"
 ----
 
-=== Setup the QEMU hook for automatic: CPU isolation, 2MB hugepages, CPU performance scheduler
+=== 5. Setup the QEMU hook for automatic: CPU isolation, 2MB hugepages, CPU performance scheduler
 * `sudo mkdir -p /etc/libvirt/hooks`
 
 * Sudo edit `/etc/libvirt/hooks/qemu`, and change the variables to match your configuration:
