@@ -107,8 +107,9 @@ options kvm_intel ple_gap=0 ple_window=0
 
 Sudo edit `/etc/sdboot-manage.conf.d/99-qemu.conf` or `/etc/default/limine` (do not append LINUX_OPTIONS="" if using Limine):
 ----
-# Remove intel_iommu=on if using an AMD CPU.
-LINUX_OPTIONS="intel_iommu=on iommu=pt tsc=reliable no_timer_check"
+# Remove intel_iommu=on and intel_pstate=disable if using an AMD CPU.
+# Disabling pstates reduces stutters in VMs but can slightly decrease performance outside of the VM
+LINUX_OPTIONS="intel_iommu=on iommu=pt tsc=reliable no_timer_check intel_pstate=disable amd_pstate=disable"
 ----
 
 Apply the bootloader kernel option changes: +
@@ -171,6 +172,7 @@ Install the Looking Glass Host to the Windows or Linux VM, and run it.
 Be sure to plug in a display port into the passed through GPU, otherwise Looking Glass will not work. It could be a real HDMI or DisplayPort plug (recommended), or a dummy plug.
 
 NOTE: All the client options are listed here: https://looking-glass.io/docs/B7/usage/
+
 To stop the annoyance of getting asked to allow the microphone and hide the microphone icon, and to reduce the audio delay, edit: `~/.config/looking-glass/client.ini`:
 ----
 [audio]
@@ -203,8 +205,16 @@ Set or change the following in your VM XML:
     <allocation mode="immediate"/>
   </memoryBacking>
 
-  # Put inside <clock>; gets past RDTSC exit checks by faking a 0.6GHz CPU frequency.
-  <timer name="tsc" frequency="600000000"/>
+  # TSC frequency gets past RDTSC exit checks by faking a 0.6GHz CPU frequency.
+  <clock offset="localtime">
+    <timer name="tsc" frequency="600000000" mode="native"/>
+    <timer name="rtc" tickpolicy="catchup"/>
+    <timer name="pit" tickpolicy="delay"/>
+    <timer name="hpet" present="no"/>
+    <timer name="kvmclock" present="yes"/>
+    <timer name="hypervclock" present="yes"/>
+  </clock>
+
 
   # Change the cores to the amount allocated to the VM; 16 cores would be cores="8".
   # Remove "svm" if using an Intel CPU, otherwise remove "vmx" if using an AMD CPU.
@@ -220,6 +230,7 @@ Set or change the following in your VM XML:
 
   # Put under </vcpu>.
   # <vcpusched> will crash the PC if the CPU pinning is wrong; that does not mean remove it!
+  <iothreads>1</iothreads>
   <cputune>
     <vcpupin vcpu="0" cpuset="1"/>
     <vcpupin vcpu="1" cpuset="9"/>
@@ -233,7 +244,9 @@ Set or change the following in your VM XML:
     <vcpupin vcpu="9" cpuset="13"/>
     <vcpupin vcpu="10" cpuset="6"/>
     <vcpupin vcpu="11" cpuset="14"/>
-    <vcpusched vcpus='0-11' scheduler='fifo' priority='99'/>
+    <vcpusched vcpus='0-11' scheduler='rr' priority='99'/>
+    <emulatorpin cpuset="8-11"/>
+    <iothreadpin iothread="1" cpuset="7"/>
   </cputune>
 
   # Replace the inside of <features> with this; if you have issues, take out each line inside hyperv one by one to test (except vendor_id)
@@ -257,6 +270,7 @@ Set or change the following in your VM XML:
 
   # Put inside <devices>
   <memballoon model="none"/>
+  <panic model="hyperv"/>
 
   # Put inside <qemu:commandline>, this helps with CPU performance. 
   # Side effect: the host says the VM's CPU cores are always 100% usage
@@ -264,8 +278,9 @@ Set or change the following in your VM XML:
   <qemu:arg value="cpu-pm=on"/>
 
   # More optimal settings for virtio on NVMe drives
+  # Be sure your disk is 'raw' instead of 'qcow2', if it is 'qcow2', convert it to 'raw'
   <disk type="file" device="disk">
-    <driver name="qemu" type="raw" cache="none" io="native" discard="unmap" iothread="1" queues="8"/>
+    <driver name="qemu" type="raw" cache="none" io="native" discard="unmap" iothread="1"/>
     <source file="/mnt/nvme/win11.img"/>
     <target dev="vda" bus="virtio"/>
   </disk>
@@ -273,7 +288,7 @@ Set or change the following in your VM XML:
   # Under <interface type="network">, ensure the model type is "virtio"
 ----
 
-.Setup the QEMU hook: 
+=== Setup the QEMU hook for automatic: CPU isolation, 2MB hugepages, CPU performance scheduler
 * `sudo mkdir -p /etc/libvirt/hooks`
 
 * Sudo edit `/etc/libvirt/hooks/qemu`, and change the variables to match your configuration:
@@ -377,9 +392,22 @@ fi
 * Restart libvirtd to ensure it recognizes the new hook, and ensure the file permissions are correct: +
 `sudo chmod +x /etc/libvirt/hooks/qemu; sudo systemctl restart virtqemud.service libvirtd.service`
 
-.Increasing Looking Glass performance
-* Disable Game Mode in Windows.
-* Put in `~/.config/looking-glass/client.ini`: +
+=== Increasing disk performance
+* If your disk is type="qcow2", you can convert to "raw" for additional performance; the disks are likely in `/var/lib/libvirt/images`, if so then you also need to use `sudo` before the command: +
+`qemu-img convert -f qcow2 -O raw DISK_NAME_HERE.qcow2 DISK_NAME_HERE.raw`
+- This will allocate the full space of the disk, you could add `-S 0` before `DISK_NAME_HERE.qcow2` but it's not recommended to use "sparse" disks as there's a performance loss.
+
+* For Btrfs, ZFS, or bcachefs filesystems, we'll disable CoW (Copy on Write) for the directory the disks are located in: +
+`sudo chattr +C /var/lib/libvirt/images`
+
+=== Increasing Looking Glass performance
+* For Windows: Enable HAGS (Hardware Accelerated GPU Scheduling), disable Game Mode, set High Performance in the Power Options, disable Dynamic Ticks and set TSC Sync Policy to enhanced then reboot: +
+`bcdedit /deletevalue useplatformclock` +
+`bcdedit /deletevalue useplatformtick` +
+`bcdedit /set disabledynamictick yes` +
+`bcdedit /set tscsyncpolicy enhanced`
+
+* Put in `~/.config/looking-glass/client.ini`:
 ----
 [win]
 jitRender=1
@@ -389,10 +417,10 @@ noSwapDamage=1
 
 ----
 
-.Looking Glass is crashing / the VM freezes
+=== Looking Glass is crashing / the VM freezes
 Update your NVIDIA drivers in the VM.
 
-.Go into the Windows VM and do the following:
+=== Go into the Windows VM and do the following:
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
 - Run "Turn Windows features on or off". Ensure that "Guarded Host", "Hyper-V", "Virtual Machine Platform", "Windows Hypervisor Platform", "Windows Sandbox", and "Windows Subsystem for Linux" is left unchecked as these features will destroy performance.
 
