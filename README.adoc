@@ -169,8 +169,6 @@ For Windows: Add an additional SATA CDROM to the VM, so you can load the latest 
 
 Add the PCI Host Device for your NVIDIA GPU and its accompanying audio device.
 
-WARNING: DO NOT install any operating system for now, we need to configure the VM config first.
-
 
 == 4. Optimizing VM performance and hiding the VM from some software
 
@@ -184,7 +182,7 @@ NOTE: You can give ChatGPT or a different AI a screenshot of your lstopo for it 
 Show the hardware topology to understand what your CPU's pinning would look like, but make sure to press kbd:[f] if there appears to be missing CPU cores: +
 `lstopo`
 
-Bring up the VM called 'win10' that Phantom Hypervisor created, we're going to edit it:
+Now lets edit the VM config created by Phantom Hypervisor called 'win10':
 ----
   # Put after </currentMemory>
   <memoryBacking>
@@ -267,23 +265,32 @@ Bring up the VM called 'win10' that Phantom Hypervisor created, we're going to e
     <msrs unknown="fault"/>
   </features>
 
-  # Change the cores to the amount allocated to the VM; 16 cores would be cores="8".
-  # Remove "svm" if using an Intel CPU, otherwise remove "vmx" if using an AMD CPU.
+  # Replace <cpu> with this:
   <cpu mode="host-passthrough" check="none" migratable="off">
     <topology sockets="1" dies="1" clusters="1" cores="6" threads="2"/>
     <cache mode="passthrough"/>
-    <feature policy="require" name="svm"/>
-    <feature policy="require" name="vmx"/>
     <feature policy="require" name="topoext"/>
     <feature policy="require" name="invtsc"/>
     <feature policy="require" name="hypervisor"/>
     <feature policy="disable" name="vmx-vnmi"/>
+    <!-- AMD specific -->
+    <feature policy="require" name="svm"/>
+    <feature policy="disable" name="ibpb"/>
+    <feature policy="disable" name="ibrs"/>
+    <feature policy="disable" name="stibp"/>
     <feature policy="disable" name="ssbd"/>
     <feature policy="disable" name="amd-ssbd"/>
     <feature policy="disable" name="virt-ssbd"/>
-    <feature policy="disable" name="rdtscp"/>
-    <feature policy="disable" name="rdpid"/>
-  </cpu>
+    <feature policy="disable" name="rsba"/>
+    <feature policy="disable" name="skip-l1dfl-vmentry"/>
+    <!-- Intel-specific -->
+    <feature policy="require" name="vmx"/>
+    <feature policy="disable" name="mds-no"/>
+    <feature policy="disable" name="pschange-mc-no"/>
+    <feature policy="disable" name="fb-clear"/>
+    <feature policy="disable" name="taa-no"/>
+    <feature policy="disable" name="l1tf"/>
+</cpu>
 
   # If you are using Looking Glass:
   # Replace <audio id="1" type="none"/> with:
