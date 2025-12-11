@@ -20,23 +20,6 @@ The host GPU is from AMD, while the guest (VM / Virtual Machine / VFIO) GPU is f
 NOTE: These instructions also work for GPUs from Intel or AMD, but there's no advice on resolving the reset bug or other problems they may have inside a virtual machine.
 
 
-== 1. Installing Hypervisor Phantom
-
-NOTE: Always install required missing packages, and keep the source to make repatching quicker.
-
-. `git clone --single-branch --depth=1 https://github.com/Scrut1ny/Hypervisor-Phantom && cd Hypervisor-Phantom/ && chmod -R +x *`
-. `sudo ./main.sh`
-. Select QEMU (Patched) Setup.
-. Build & install QEMU to /usr/local/bin [y/n]: **y**
-
-. Select EDK2 (Patched) Setup.
-. When asked to apply host's or custom, choose host's.
-
-. Select Auto Libvirt XML Setup.
-. This will generate a VM for you called 'win10', we're going to copy some things from it to put in our VM config later on.
-
-. The kernel setup is skipped unless you absolutely need it. You'll know for yourself later on.
-
 == [Optional] GPU passthrough
 Programs such as OBS Studio will keep trying to use NVIDIA drivers instead of the AMD drivers if the LIBVA_DRIVER_NAME is still set to nvidia, in which the libva-nvidia-driver package enforces; for OBS, this means you can't record using GPU hardware acceleration: +
 `sudo pacman -R libva-nvidia-driver`
@@ -99,7 +82,7 @@ Sudo edit: `/etc/mkinitcpio.conf`
 # Check to see if 'modconf' is already included in HOOKS=(), it's necessary.
 ----
 
-== 2. Virtual machine requisites
+== 1. Virtual machine requisites
 
 Sudo edit: `/etc/sysctl.d/99-qemu.conf`
 ----
@@ -124,15 +107,15 @@ options kvm_intel ple_gap=0 ple_window=0
 
 Sudo edit `/etc/sdboot-manage.conf.d/99-qemu.conf` or `/etc/default/limine` (do not append LINUX_OPTIONS="" if using Limine):
 ----
-# Remove intel_iommu=on and intel_pstate=disable if using an AMD CPU.
-# Disabling pstates reduces stutters in VMs but can slightly decrease performance outside of the VM
-LINUX_OPTIONS="intel_iommu=on iommu=pt tsc=reliable no_timer_check intel_pstate=disable amd_pstate=disable"
+# Remove 'intel_iommu=on' if using an AMD CPU
+# 'pcie_aspm=off' turns off PCIe power management but helps with GPU related stutters
+LINUX_OPTIONS="intel_iommu=on iommu=pt tsc=reliable no_timer_check pcie_aspm=off split_lock_detect=off"
 ----
 
-Apply the bootloader kernel option changes: +
-`sudo sdboot-manage gen` or `sudo limine-mkinitcpio`
+.[Only if you didn't install a new kernel] Apply the bootloader kernel option changes:
+* `sudo sdboot-manage gen` or `sudo limine-mkinitcpio`
 
-(Unnecessary on Limine) Apply the new modprobe.d and mkinitcpio.conf changes: +
+* (Unnecessary on Limine) Apply the new modprobe.d and mkinitcpio.conf changes: +
 `sudo mkinitcpio -P`
 
 Reboot your PC: +
@@ -148,6 +131,24 @@ Sudo edit: `/etc/libvirt/network.conf`, and change `firewall_backend` to `iptabl
 
 Enable and start the required services to use Virtual Machine Manager: +
 `sudo systemctl enable --now libvirtd.service`
+
+
+== 2. Installing Hypervisor Phantom
+
+NOTE: Always install required missing packages, and keep the source to make repatching quicker.
+
+. `git clone --single-branch --depth=1 https://github.com/Scrut1ny/Hypervisor-Phantom && cd Hypervisor-Phantom/ && chmod -R +x *`
+. `sudo ./main.sh`
+. Select QEMU (Patched) Setup.
+. Build & install QEMU to /usr/local/bin [y/n]: **y**
+
+. Select EDK2 (Patched) Setup.
+. When asked to apply host's or custom, choose host's.
+
+. Select Auto Libvirt XML Setup.
+. This will generate a VM for you called 'win10', we're going to edit this later on.
+
+. The kernel setup is skipped unless you absolutely need it. You'll know for yourself later on if you need it.
 
 
 == 3. Virtual machine setup
@@ -174,107 +175,73 @@ Add the PCI Host Device for your NVIDIA GPU and its accompanying audio device.
 
 Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mouse-display-audio[its own recommendations], follow those in addition to what my guide recommends below.
 
-For the XML changes below, here is the topology of the 9800X3D CPU used (relevant for the CPU pinning): +
-image:lstopo.png[]
-
-NOTE: You can give ChatGPT or a different AI a screenshot of your lstopo for it to tell you what's the correct <vcpupin> and CPU core isolation order; ask for both.
-
-Show the hardware topology to understand what your CPU's pinning would look like, but make sure to press kbd:[f] if there appears to be missing CPU cores: +
-`lstopo`
-
 Now lets edit the VM config created by Phantom Hypervisor called 'win10':
+[xml]
 ----
-  # Put after </currentMemory>
-  <memoryBacking>
-    <hugepages/>
-    <nosharepages/>
-    <locked/>
-    <allocation mode="immediate"/>
-  </memoryBacking>
+  <!-- Put after </currentMemory> -->
+    <memoryBacking>
+      <hugepages/>
+      <nosharepages/>
+      <locked/>
+      <allocation mode="immediate"/>
+    </memoryBacking>
 
-  # Put underneath </vcpu>.
-  # <vcpusched> will crash the PC if the CPU pinning is wrong; that does not mean remove it!
-  <iothreads>1</iothreads>
-  <cputune>
-    <vcpupin vcpu="0" cpuset="1"/>
-    <vcpupin vcpu="1" cpuset="9"/>
-    <vcpupin vcpu="2" cpuset="2"/>
-    <vcpupin vcpu="3" cpuset="10"/>
-    <vcpupin vcpu="4" cpuset="3"/>
-    <vcpupin vcpu="5" cpuset="11"/>
-    <vcpupin vcpu="6" cpuset="4"/>
-    <vcpupin vcpu="7" cpuset="12"/>
-    <vcpupin vcpu="8" cpuset="5"/>
-    <vcpupin vcpu="9" cpuset="13"/>
-    <vcpupin vcpu="10" cpuset="6"/>
-    <vcpupin vcpu="11" cpuset="14"/>
-    <vcpusched vcpus="0-11" scheduler="rr" priority="99"/>
-    <emulatorpin cpuset="0,8"/>
-    <iothreadpin iothread="1" cpuset="15"/>
-  </cputune>
-
-  # Replace <clock> with this:
-  <clock offset="localtime">
-    <timer name="tsc" tickpolicy="discard" mode="native"/>
-    <timer name="rtc" tickpolicy="catchup"/>
-    <timer name="pit" tickpolicy="delay"/>
-    <timer name="hpet" present="no"/>
-    <timer name="kvmclock" present="yes"/>
-    <timer name="hypervclock" present="yes"/>
-  </clock>
+  <!-- Replace <clock> with this: -->
+    <clock offset="localtime">
+      <timer name="tsc" tickpolicy="discard" mode="native"/>
+      <timer name="rtc" tickpolicy="catchup"/>
+      <timer name="pit" present="no"/>
+      <timer name="hpet" present="no"/>
+      <timer name="kvmclock" present="yes"/>
+      <timer name="hypervclock" present="yes"/>
+    </clock>
   
-  # Remove stimer to support nested VMs (for further anti-VM detections), which you do by enabling Virtual Machine Platform in "Turn Windows features on or off"
-  # - Change AuthenticAMD to GenuineIntel if using an Intel CPU!
-  <features>
-    <acpi/>
-    <apic/>
-    <hyperv mode="custom">
-      <relaxed state="on"/>
-      <vapic state="on"/>
-      <spinlocks state="on" retries="8191"/>
-      <vpindex state="on"/>
-      <runtime state="on"/>
-      <synic state="on"/>
-      <stimer state="on">
-        <direct state="on"/>
-      </stimer>
-      <reset state="on"/>
-      <vendor_id state="on" value="AuthenticAMD"/>
-      <frequencies state="on"/>
-      <reenlightenment state="on"/>
-      <tlbflush state="on">
-        <direct state="on"/>
-        <extended state="on"/>
-      </tlbflush>
-      <ipi state="on"/>
-      <avic state="on"/>
-      <emsr_bitmap state="on"/>
-      <xmm_input state="on"/>
-    </hyperv>
-    <kvm>
-      <hidden state="on"/>
-      <hint-dedicated state="on"/>
-      <poll-control state="on"/>
-      <pv-ipi state="off"/>
-      <dirty-ring state="on" size="4096"/>
-    </kvm>
-    <pmu state="off"/>
-    <vmport state="off"/>
-    <smm state="on"/>
-    <ioapic driver="kvm"/>
-    <msrs unknown="fault"/>
-  </features>
+  <!-- Remove stimer to support nested VMs (for further anti-VM detections), which you do by enabling Virtual Machine Platform in "Turn Windows features on or off" -->
+  <!-- Change AuthenticAMD to GenuineIntel if using an Intel CPU! -->
+  <!-- NOTE: If you don't plan to do nested VMs, just do <hyperv mode="passthrough"/> to clean up the config.
+    <features>
+      <acpi/>
+      <apic/>
+      <hyperv mode="custom">
+        <relaxed state="on"/>
+        <vapic state="on"/>
+        <spinlocks state="on" retries="4095"/>
+        <vpindex state="on"/>
+        <runtime state="on"/>
+        <synic state="on"/>
+        <stimer state="on">
+          <direct state="on"/>
+        </stimer>
+        <reset state="on"/>
+        <vendor_id state="on" value="AuthenticAMD"/>
+        <frequencies state="on"/>
+        <reenlightenment state="on"/>
+        <tlbflush state="on">
+          <direct state="on"/>
+          <extended state="on"/>
+        </tlbflush>
+        <ipi state="on"/>
+        <avic state="on"/>
+        <emsr_bitmap state="on"/>
+        <xmm_input state="on"/>
+      </hyperv>
+      <kvm>
+        <hidden state="on"/>
+      </kvm>
+      <pmu state="off"/>
+      <vmport state="off"/>
+      <smm state="on"/>
+      <ioapic driver="kvm"/>
+      <msrs unknown="fault"/>
+    </features>
 
-  # Replace <cpu> with this:
-  <cpu mode="host-passthrough" check="none" migratable="off">
-    <topology sockets="1" dies="1" clusters="1" cores="6" threads="2"/>
-    <cache mode="passthrough"/>
+  <!-- Put under <cpu>: -->
     <feature policy="require" name="topoext"/>
     <feature policy="require" name="invtsc"/>
     <feature policy="require" name="hypervisor"/>
     <feature policy="disable" name="vmx-vnmi"/>
     <!-- AMD specific -->
-    <feature policy="require" name="svm"/>
+    <feature policy="disable" name="svm"/>
     <feature policy="disable" name="ibpb"/>
     <feature policy="disable" name="ibrs"/>
     <feature policy="disable" name="stibp"/>
@@ -284,7 +251,7 @@ Now lets edit the VM config created by Phantom Hypervisor called 'win10':
     <feature policy="disable" name="rsba"/>
     <feature policy="disable" name="skip-l1dfl-vmentry"/>
     <!-- Intel-specific -->
-    <feature policy="require" name="vmx"/>
+    <feature policy="disable" name="vmx"/>
     <feature policy="disable" name="mds-no"/>
     <feature policy="disable" name="pschange-mc-no"/>
     <feature policy="disable" name="fb-clear"/>
@@ -292,139 +259,45 @@ Now lets edit the VM config created by Phantom Hypervisor called 'win10':
     <feature policy="disable" name="l1tf"/>
 </cpu>
 
-  # If you are using Looking Glass:
-  # Replace <audio id="1" type="none"/> with:
+  <!-- If you are using Looking Glass:
+  Replace <audio id="1" type="none"/> with:
   <audio id="1" type="spice"/>
-  # Be sure to add Graphics -> Spice Server (with default settings) inorder to use this!
+  Be sure to add Graphics -> Spice Server (with default settings) inorder to use this! -->
 
-  # Put inside <devices>
-  <panic model="hyperv"/>
+  <!-- Put inside <devices> -->
+    <panic model="hyperv"/>
 
-  # Remove the entire <shmem name="looking-glass"> block; it's an old and slower method of running LG
+  <!-- Remove the entire <shmem name="looking-glass"> block; it's an old and slower method of running LG -->
 
-  # Put inside <qemu:commandline>, "cpu-pm=on" helps with CPU performance. 
-  # Side effect: the host says the VM's CPU cores are always 100% usage
-  <qemu:arg value="-overcommit"/>
-  <qemu:arg value="cpu-pm=on"/>
+  <!-- Put inside <qemu:commandline>, "cpu-pm=on" helps with CPU performance.
+       Side effect: the host says the VM's CPU cores are always 100% usage -->
+    <qemu:arg value="-overcommit"/>
+    <qemu:arg value="cpu-pm=on"/>
 
-  # More optimal settings for virtio on NVMe drives
-  # Be sure your disk is 'raw' instead of 'qcow2', if it is 'qcow2', convert it to 'raw'
-  <disk type="file" device="disk">
-    <driver name="qemu" type="raw" cache="none" io="native" discard="unmap" iothread="1" queues="8"/>
-    <source file="/mnt/nvme/win11.img"/>
-    <target dev="vda" bus="virtio"/>
-  </disk>
+  <!-- More optimal settings for virtio on NVMe drives
+       Be sure your disk is 'raw' instead of 'qcow2'; if it is 'qcow2', convert it to 'raw' -->
+    <disk type="file" device="disk">
+      <driver name="qemu" type="raw" cache="none" io="native" discard="unmap" iothread="1" queues="8"/>
+      <source file="/mnt/nvme/win11.img"/>
+      <target dev="vda" bus="virtio"/>
+    </disk>
 
-  # Under <interface type="network">, ensure the model type is "virtio"
+  <!-- Under <interface type="network">, ensure the model type is "virtio" -->
 ----
 
 === 5. Setup the QEMU hook for automatic: CPU isolation, 2MB hugepages, CPU performance scheduler
+
 * `sudo mkdir -p /etc/libvirt/hooks`
 
-* Sudo edit `/etc/libvirt/hooks/qemu`, and change the variables to match your configuration:
-----
-#!/bin/bash
+* `git clone https://github.com/felikcat/qemu-hidden`
+- NOTE: It is recommended to start at core 2 instead of 1: +
+`python qemu-hidden/cpu_pinning.py --help`
+- This command is recommended for a 9800X3D (8 cores, 16 threads): +
+`sudo ./cpu_pinning.py --install-hook --vm-cores 6 --vm-memory 16384`
 
-# -------------------------
-# CPU topology configuration
-# -------------------------
-
-# VM gets these logical cores; never allocate 0 or 1
-# I would recommend giving AI an image of your lstopo to set this and HOST_CORES
-VM_CORES="2-7,10-15"
-
-# Host keeps these logical cores; always use at least 4 cores
-HOST_CORES="0-1,8-9"
-
-# Total available system cores
-ALL_CORES="0-15"
-
-# VM memory in MB (used for hugepages)
-VM_MEMORY="16384"
-
-command=$2
-
-# -------------------------
-# Function: allocate hugepages
-# -------------------------
-allocate_hugepages() {
-  HP_KB=$(grep Hugepagesize /proc/meminfo | awk '{print $2}')
-  HP_MB=$((HP_KB / 1024))
-
-  HUGEPAGES=$(( VM_MEMORY / HP_MB ))
-
-  echo "Allocating hugepages: $HUGEPAGES pages ($VM_MEMORY MB / ${HP_MB}MB pagesize)"
-
-  echo $HUGEPAGES > /proc/sys/vm/nr_hugepages
-
-  ALLOC_PAGES=$(cat /proc/sys/vm/nr_hugepages)
-  TRIES=0
-
-  while (( ALLOC_PAGES != HUGEPAGES && TRIES < 1024 ))
-  do
-    echo $HUGEPAGES > /proc/sys/vm/nr_hugepages
-    ALLOC_PAGES=$(cat /proc/sys/vm/nr_hugepages)
-    echo "Allocated $ALLOC_PAGES / $HUGEPAGES"
-    (( TRIES++ ))
-  done
-
-  if [ "$ALLOC_PAGES" -ne "$HUGEPAGES" ]; then
-    echo "Hugepages allocation failed. Reverting..."
-    echo 0 > /proc/sys/vm/nr_hugepages
-    exit 1
-  fi
-}
-
-# -------------------------
-# Event: PREPARE
-# -------------------------
-if [ "$command" = "prepare" ]; then
-
-  # Allocate hugepages BEFORE isolating CPUs
-  vfio-isolate \
-    drop-caches
-  allocate_hugepages
-
-  # Isolate VM cores but keep host on HOST_CORES
-  vfio-isolate -u /tmp/vfio_isolate_history \
-    cpu-governor performance C${ALL_CORES} \
-    cpuset-modify --cpus C${HOST_CORES} /system.slice \
-    cpuset-modify --cpus C${HOST_CORES} /user.slice \
-    cpuset-modify --cpus C${HOST_CORES} /init.scope \
-    irq-affinity mask C${VM_CORES}
-
-  echo "CPU isolation complete."
-  echo "Host cores: $HOST_CORES"
-  echo "VM cores:   $VM_CORES"
-
-# -------------------------
-# Event: RELEASE
-# -------------------------
-elif [ "$command" = "release" ]; then
-  echo "Releasing VFIO isolation..."
-  vfio-isolate restore /tmp/vfio_isolate_history
-
-  # Incase vfio-isolate restore failed
-  vfio-isolate \
-    cpuset-modify --cpus C${ALL_CORES} /system.slice \
-    cpuset-modify --cpus C${ALL_CORES} /user.slice \
-    cpuset-modify --cpus C${ALL_CORES} /init.scope \
-    irq-affinity mask C${ALL_CORES}
-
-  echo "Dropping hugepages..."
-  echo 0 > /proc/sys/vm/nr_hugepages
-
-  echo "Done."
-fi
-
-----
-
-* Restart libvirtd to ensure it recognizes the new hook, and ensure the file permissions are correct: +
+* Ensure the file permissions are correct, then restart libvirtd so it recognizes the new hook: +
 `sudo chmod +x /etc/libvirt/hooks/qemu; sudo systemctl restart virtqemud.service libvirtd.service`
 
-
-== [Optional] Cloning the VM
-Shut down the VM, then choose 'Virtual Machine' -> 'Clone'.
 
 == [Optional] Looking Glass setup
 
@@ -458,32 +331,40 @@ Ensure the display scaling in KDE Plasma is set to intervals of 25%, otherwise L
 * For Btrfs, ZFS, or bcachefs filesystems, we'll disable CoW (Copy on Write) for the directory the disks are located in: +
 `sudo chattr +C /var/lib/libvirt/images`
 
-=== Lower audio delay and stuttering
+=== Lower audio stuttering
 * For Windows: Go into the old audio settings ("More sound settings" in Windows 11), right-click "Speakers" and click "Properties", then in "Enhancements" disable all enhancements and in "Advanced" ensure the Default Format is: 16 bit, 48000 Hz.
 
-=== Increasing Looking Glass performance
+=== Go into the Windows VM and do the following:
+- Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
+- Run "Turn Windows features on or off". Ensure that "Guarded Host", "Hyper-V", "Virtual Machine Platform", "Windows Hypervisor Platform", "Windows Sandbox", and "Windows Subsystem for Linux" is left unchecked as these features will lower performance.
+
+=== I'm having stuttering issues
+
+TIP: This is unavoidable with Looking Glass, but the following steps will help greatly.
+
+**Enable VRR** (also called: FreeSync, G-SYNC, or Adaptive Sync) on your monitor. In KDE's Display Configuration you'd want to set Adaptive Sync to 'Always'.
+
 * For Windows: Enable HAGS (Hardware Accelerated GPU Scheduling), disable Game Mode, set High Performance in the Power Options, disable Dynamic Ticks and set TSC Sync Policy to enhanced then reboot: +
 `bcdedit /deletevalue useplatformclock` +
 `bcdedit /deletevalue useplatformtick` +
 `bcdedit /set disabledynamictick yes` +
 `bcdedit /set tscsyncpolicy enhanced`
 
-* Put in `~/.config/looking-glass/client.ini`:
-----
-[win]
-jitRender=1
-
-[egl]
-noSwapDamage=1
-
-----
+.Use NVcleanstall and do the following:
+* Install NVIDIA driver 566.36.
+* Use the minimum components to install.
+* Enable Perform a Clean Installation.
+* Disable Multiplane Overlay (MPO).
+* Disable Ansel.
+* In Show Expert Tweaks -> Disable NVIDIA HD Audio device sleep timer.
+- Disable Driver Telemetry, and ensure to "Use method compatible with Easy-Anti-Cheat".
+- Enable Message Signaled Interrupts, with Interrupt Policy "All Close Processors" and Interrupt Priority "High".
+- Disable HDCP.
+* After the NVIDIA driver is installed, in the NVIDIA Control Panel, set the 'Power management mode' to 'Prefer Maximum Performance'.
 
 === Looking Glass is crashing / the VM freezes
 Update your NVIDIA drivers in the VM.
 
-=== Go into the Windows VM and do the following:
-- Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
-- Run "Turn Windows features on or off". Ensure that "Guarded Host", "Hyper-V", "Virtual Machine Platform", "Windows Hypervisor Platform", "Windows Sandbox", and "Windows Subsystem for Linux" is left unchecked as these features will lower performance.
 
 == [Optional] Sharing files to the Windows VM without enabling shared memory (for better performance)
 
