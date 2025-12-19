@@ -350,7 +350,7 @@ TIP: This is unavoidable with Looking Glass, but the following steps will help g
 `bcdedit /set disabledynamictick yes` +
 `bcdedit /set tscsyncpolicy enhanced`
 
-.Use NVcleanstall and do the following:
+.Use https://www.techpowerup.com/nvcleanstall/[NVcleanstall] (only from Techpowerup) and do the following:
 * Install NVIDIA driver 566.36.
 * Use the minimum components to install.
 * Enable Perform a Clean Installation.
