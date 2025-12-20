@@ -330,24 +330,26 @@ Ensure the display scaling in KDE Plasma is set to intervals of 25%, otherwise L
 * For Btrfs, ZFS, or bcachefs filesystems, we'll disable CoW (Copy on Write) for the directory the disks are located in: +
 `sudo chattr +C /var/lib/libvirt/images`
 
-=== Lower audio stuttering
-* For Windows: Go into the old audio settings ("More sound settings" in Windows 11), right-click "Speakers" and click "Properties", then in "Enhancements" disable all enhancements and in "Advanced" ensure the Default Format is: 16 bit, 48000 Hz.
-
 === Go into the Windows VM and do the following:
 - Run "Edit group policy". Go to Computer Configuration -> Administrative Templates -> System -> Device Guard -> Turn On Virtualization Based Security, and set it to "Enabled". Ensure "Select Platform Security Level" is set to "Secure Boot", and the rest of the options are left as "Not Configured".
 - Run "Turn Windows features on or off". Ensure that "Guarded Host", "Hyper-V", "Virtual Machine Platform", "Windows Hypervisor Platform", "Windows Sandbox", and "Windows Subsystem for Linux" is left unchecked as these features will lower performance.
 
-=== I'm having stuttering issues
+== I'm having stuttering / frame pacing issues
 
-TIP: This is unavoidable with Looking Glass, but the following steps will help greatly.
+TIP: This is sometimes unavoidable with Looking Glass, which would require VRR to hide stutters, but the following steps will help greatly.
 
-**Enable VRR** (also called: FreeSync, G-SYNC, or Adaptive Sync) on your monitor. In KDE's Display Configuration you'd want to set Adaptive Sync to 'Always'.
+See my ways of https://github.com/felikcat/cachy-os-setup?tab=readme-ov-file#ways-to-automatically-improve-the-performance-stability-of-games[improving CachyOS' performance stability] before trying anything below.
+
+**Enable VRR** (also called: FreeSync, G-SYNC, or Adaptive Sync) on your monitor. In KDE's Display Configuration you'd want to set Adaptive Sync to 'Always'. +
+If you can go without VRR, do so.
 
 * For Windows: Enable HAGS (Hardware Accelerated GPU Scheduling), disable Game Mode, set High Performance in the Power Options, disable Dynamic Ticks and set TSC Sync Policy to enhanced then reboot: +
 `bcdedit /deletevalue useplatformclock` +
 `bcdedit /deletevalue useplatformtick` +
 `bcdedit /set disabledynamictick yes` +
 `bcdedit /set tscsyncpolicy enhanced`
+
+* For Windows: Go into the old audio settings ("More sound settings" in Windows 11), right-click "Speakers" and click "Properties", then in "Enhancements" disable all enhancements and in "Advanced" ensure the Default Format is: 16 bit, 48000 Hz.
 
 .Use https://www.techpowerup.com/nvcleanstall/[NVcleanstall] (only from Techpowerup) and do the following:
 * Install NVIDIA driver 566.36.
