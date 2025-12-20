@@ -24,6 +24,9 @@ NOTE: These instructions also work for GPUs from Intel or AMD, but there's no ad
 Programs such as OBS Studio will keep trying to use NVIDIA drivers instead of the AMD drivers if the LIBVA_DRIVER_NAME is still set to nvidia, in which the libva-nvidia-driver package enforces; for OBS, this means you can't record using GPU hardware acceleration: +
 `sudo pacman -R libva-nvidia-driver`
 
+If you're not running the NVIDIA GPU outside of virtual machines, remove its drivers in the host system: +
+`sudo pacman -Rnsc linux-cachyos-nvidia-open nvidia-utils`
+
 Create the directory if it doesn't exist: +
 `mkdir -p ~/.config/environment.d`
 
