@@ -313,12 +313,11 @@ Be sure to plug in a display port into the passed through GPU, otherwise Looking
 
 NOTE: All the client options are listed here: https://looking-glass.io/docs/B7/usage/
 
-To stop the annoyance of getting asked to allow the microphone and hide the microphone icon, and to reduce the audio delay, edit: `~/.config/looking-glass/client.ini`:
+To stop the annoyance of getting asked to allow the microphone and hide the microphone icon, edit: `~/.config/looking-glass/client.ini`:
 ----
 [audio]
 micDefault=allow
 micShowIndicator=no
-bufferLatency=0
 ----
 
 Ensure the display scaling in KDE Plasma is set to intervals of 25%, otherwise Looking Glass will look blurry (such as on 115% scaling instead of 125% scaling).
