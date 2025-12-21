@@ -181,6 +181,12 @@ Looking Glass has https://looking-glass.io/docs/B7/install_libvirt/#keyboard-mou
 Now lets edit the VM config created by Phantom Hypervisor called 'win10':
 [xml]
 ----
+
+  <!-- Helps with how we gave QEMU nice -20 in the libvirt hook. 0-11 is 6 cores 2 threads. -->
+  <cputune>
+    <vcpusched vcpus="0-11" scheduler="batch"/>
+  </cputune>
+
   <!-- Put after </currentMemory> -->
     <memoryBacking>
       <hugepages/>
@@ -272,8 +278,7 @@ Now lets edit the VM config created by Phantom Hypervisor called 'win10':
 
   <!-- Remove the entire <shmem name="looking-glass"> block; it's an old and slower method of running LG -->
 
-  <!-- Put inside <qemu:commandline>, "cpu-pm=on" helps with CPU performance.
-       Side effect: the host says the VM's CPU cores are always 100% usage -->
+  <!-- Remove this if present, it will reduce performance -->
     <qemu:arg value="-overcommit"/>
     <qemu:arg value="cpu-pm=on"/>
 
