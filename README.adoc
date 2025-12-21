@@ -293,15 +293,14 @@ Now lets edit the VM config created by Phantom Hypervisor called 'win10':
   <!-- Under <interface type="network">, ensure the model type is "virtio" -->
 ----
 
-=== 5. Setup the QEMU hook for automatic: CPU isolation, 2MB hugepages, CPU performance scheduler
+=== 5. Setup the QEMU hook for automatic: 2MB hugepages, CPU performance scheduler, max process priority, and realtime priority
+
+NOTE: CPU pinning is not done anymore as I found out that pinning causes lag issues with the host (non-VM), and has the same performance inside the VM as non-pinning. You will not stutter less by using CPU pinning unless your CachyOS setup is suboptimal, which this guide helps with later on.
 
 * `sudo mkdir -p /etc/libvirt/hooks`
 
 * `git clone https://github.com/felikcat/qemu-hidden`
-- NOTE: It is recommended to start at core 2 instead of 1: +
-`python qemu-hidden/cpu_pinning.py --help`
-- This command is recommended for a 9800X3D (8 cores, 16 threads): +
-`sudo ./cpu_pinning.py --install-hook --vm-cores 6 --vm-memory 16384`
+- sudo python qemu-hidden/generator.py --install-hook --vm-memory 16384`
 
 * Ensure the file permissions are correct, then restart libvirtd so it recognizes the new hook: +
 `sudo chmod +x /etc/libvirt/hooks/qemu; sudo systemctl restart virtqemud.service libvirtd.service`
